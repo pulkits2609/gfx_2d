@@ -1,0 +1,54 @@
+
+# Build
+
+build/
+cmake-build-*/
+out/
+
+# CMake
+
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+
+# Compiled binaries / objects
+
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dll
+*.exe
+*.out
+
+# IDE - VS Code
+
+.vscode/
+
+# IDE - CLion
+
+.idea/
+
+# OS junk
+
+.DS_Store
+Thumbs.db
+
+# Python
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# GLAD generated/build artifacts
+
+external/glad/build/
+external/glad/*.egg-info/
