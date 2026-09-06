@@ -16,12 +16,18 @@ pkg_check_modules(GLFW REQUIRED glfw3)
 add_executable(gfx
     src/main.cpp
     external/glad-generated/src/gl.c
+    src/Core/window.cpp
+    src/Core/application.cpp
+    src/Graphics/vertexBuffer.cpp
+    src/Graphics/vertexArray.cpp
+    src/Graphics/shader.cpp
 )
 
 target_include_directories(gfx
     PRIVATE
         ${GLFW_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/external/glad-generated/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_link_libraries(gfx
