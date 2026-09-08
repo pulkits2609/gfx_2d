@@ -25,8 +25,6 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(glfw)
 
-FetchContent_MakeAvailable(glfw)
-
 add_executable(gfx
 
     src/main.cpp
