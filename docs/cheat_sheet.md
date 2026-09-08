@@ -1,495 +1,162 @@
-# GLFW
+# GFX_2D — OpenGL & Architecture Cheatsheet
 
-## What is GLFW responsible for?
+## 1. GLFW
 
-GLFW is a cross-platform library responsible for:
+### What GLFW does
 
-* Creating windows
-* Creating/managing OpenGL contexts
-* Handling input and window events
+GLFW is responsible for:
+
+* Creating the application window
+* Creating the OpenGL context
+* Handling keyboard/mouse/window events
+* Processing events
 * Swapping front/back buffers
-* Providing OpenGL function addresses to GLAD
 
-GLFW is **not the graphics API itself**.
+GLFW is **not** the graphics API.
 
-OpenGL is the graphics API.
+OpenGL performs the actual rendering.
 
----
+### Basic Window Flow
 
-## `GLFWwindow*` vs OpenGL Context
+```cpp
+glfwInit();
 
-`GLFWwindow*` is an opaque handle/pointer to a GLFW-managed window object.
+GLFWwindow* window =
+    glfwCreateWindow(width, height, title, nullptr, nullptr);
 
-Conceptually:
+glfwMakeContextCurrent(window);
 
-```text
-GLFWwindow
-├── OS window information
-├── GLFW state
-├── input/event state
-└── associated OpenGL context
+gladLoadGL(glfwGetProcAddress);
+
+while(!glfwWindowShouldClose(window))
+{
+    glfwPollEvents();
+
+    // Rendering
+
+    glfwSwapBuffers(window);
+}
+
+glfwDestroyWindow(window);
+glfwTerminate();
 ```
 
-The OpenGL context is the OpenGL state/environment in which OpenGL commands execute.
-
 ---
 
-## `glfwMakeContextCurrent()`
+# 2. OpenGL Context
+
+`GLFWwindow*` is an opaque GLFW window handle.
+
+The OpenGL context contains the OpenGL state associated with the window.
 
 ```cpp
 glfwMakeContextCurrent(window);
 ```
 
-Makes the OpenGL context associated with `window` current on the calling CPU thread.
+makes that context current on the calling thread.
 
-This must happen before loading OpenGL functions through GLAD.
-
-Initialization sequence:
-
-```text
-glfwInit()
-    ↓
-glfwCreateWindow()
-    ↓
-glfwMakeContextCurrent(window)
-    ↓
-gladLoadGL(glfwGetProcAddress)
-    ↓
-OpenGL functions can now be used
-```
-
----
-
-## Why must `gladLoadGL()` happen after creating the window/context?
-
-GLAD needs to retrieve the addresses of OpenGL functions.
+GLAD must be initialized **after** a valid OpenGL context exists because GLAD needs to obtain OpenGL function addresses from the active context.
 
 ```cpp
 gladLoadGL(glfwGetProcAddress);
 ```
 
-Internally:
-
-```text
-OpenGL context becomes current
-        ↓
-gladLoadGL(glfwGetProcAddress)
-        ↓
-GLAD asks GLFW for OpenGL function addresses
-        ↓
-GLAD stores the function pointers
-```
-
-Without a valid current OpenGL context, those function addresses cannot be reliably loaded.
-
 ---
 
-## Framebuffer Resize Callback
+# 3. Framebuffer Resize
 
-Register:
-
-```cpp
-glfwSetFramebufferSizeCallback(window, callback);
-```
-
-This tells GLFW:
-
-> Whenever this window's framebuffer changes size, call this function.
-
-Callback format:
+The framebuffer callback is responsible for updating the OpenGL viewport when the drawable framebuffer changes size.
 
 ```cpp
-void callback(GLFWwindow* window, int width, int height);
-```
-
-Example:
-
-```cpp
-static void frameBuffer_size_callback(
+void FramebufferSizeCallback(
     GLFWwindow* window,
     int width,
     int height
-){
+)
+{
     glViewport(0, 0, width, height);
 }
 ```
 
-`glViewport()` defines the rectangular region of the framebuffer OpenGL renders into.
-
-Initial viewport:
+Register it with:
 
 ```cpp
-glViewport(0, 0, width, height);
-```
-
-It should normally be set once initially and then updated when the framebuffer size changes.
-
----
-
-## C++ Member Functions and GLFW Callbacks
-
-GLFW expects a normal C-style function pointer:
-
-```cpp
-void (*)(GLFWwindow*, int, int)
-```
-
-A normal C++ non-static member function has an implicit `this` pointer:
-
-```cpp
-void (Window::*)(GLFWwindow*, int, int)
-```
-
-Therefore a normal member function cannot directly be passed to GLFW.
-
-A `static` member function has no `this` pointer, so it can match GLFW's required callback type.
-
-Example:
-
-```cpp
-static void frameBuffer_size_callback(
-    GLFWwindow* window,
-    int width,
-    int height
+glfwSetFramebufferSizeCallback(
+    window,
+    FramebufferSizeCallback
 );
 ```
 
----
+### Why static member functions are useful
 
-## `glfwPollEvents()` vs `glfwSwapBuffers()`
-
-### `glfwPollEvents()`
+A normal C++ member function has an implicit `this` parameter:
 
 ```cpp
-glfwPollEvents();
+void Window::Callback(...)
 ```
 
-Processes pending operating-system/window events such as:
+Its type is incompatible with the C-style callback expected by GLFW.
 
-* Keyboard input
-* Mouse input
-* Resize events
-* Window close
-* Window focus
-* Other GLFW events
+A `static` member function has no implicit `this`, so it can match the required callback signature.
 
 ---
 
-### `glfwSwapBuffers()`
-
-```cpp
-glfwSwapBuffers(window);
-```
-
-Swaps the front and back buffers associated with the window.
-
-Typical double-buffered rendering:
-
-```text
-Back Buffer
-    ↓
-GPU renders frame
-    ↓
-glfwSwapBuffers()
-    ↓
-Front Buffer
-    ↓
-Display
-```
-
-This prevents partially rendered frames from being displayed.
-
----
-
-## `glfwWindowShouldClose()`
-
-```cpp
-glfwWindowShouldClose(window);
-```
-
-Checks GLFW's close flag for the window.
-
-Typical loop:
-
-```cpp
-while(!glfwWindowShouldClose(window)){
-    glfwPollEvents();
-
-    // rendering
-
-    glfwSwapBuffers(window);
-}
-```
-
----
-
-## GLFW Initialization and Termination
-
-Initialization:
-
-```cpp
-glfwInit();
-```
-
-Should happen before creating any GLFW windows.
-
-Termination:
-
-```cpp
-glfwTerminate();
-```
-
-Should happen after GLFW-managed resources/windows have been destroyed.
-
-Typical lifetime:
-
-```text
-glfwInit()
-    ↓
-Create Window
-    ↓
-Use Window
-    ↓
-glfwDestroyWindow()
-    ↓
-glfwTerminate()
-```
-
----
-
-# OpenGL Buffer Objects
-
-## Vertex Buffer Object — VBO
+# 4. VBO — Vertex Buffer Object
 
 A VBO stores vertex data in GPU-accessible memory.
 
-Example CPU data:
+Typical lifecycle:
 
 ```cpp
-float vertices[] = {
-     0.0f,  0.5f,
-    -0.5f, -0.5f,
-     0.5f, -0.5f
-};
-```
-
-Typical raw OpenGL VBO sequence:
-
-```cpp
-GLuint vbo;
-
 glGenBuffers(1, &vbo);
 
 glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
 glBufferData(
     GL_ARRAY_BUFFER,
-    sizeof(vertices),
-    vertices,
+    size,
+    data,
     GL_STATIC_DRAW
 );
 ```
 
----
+### Important functions
 
-## `glGenBuffers()`
+| Function            | Purpose                                       |
+| ------------------- | --------------------------------------------- |
+| `glGenBuffers()`    | Creates buffer object IDs                     |
+| `glBindBuffer()`    | Makes a buffer the active buffer for a target |
+| `glBufferData()`    | Uploads data                                  |
+| `glDeleteBuffers()` | Deletes the buffer                            |
 
-Format:
+### Unbinding
 
-```cpp
-glGenBuffers(
-    GLsizei n,
-    GLuint* buffers
-);
-```
+There is no `glUnbindBuffer()`.
 
-Example:
-
-```cpp
-glGenBuffers(1, &vbo);
-```
-
-Creates one buffer object name/ID.
-
----
-
-## `glBindBuffer()`
-
-Format:
-
-```cpp
-glBindBuffer(
-    GLenum target,
-    GLuint buffer
-);
-```
-
-Example:
-
-```cpp
-glBindBuffer(GL_ARRAY_BUFFER, vbo);
-```
-
-This makes `vbo` the currently bound buffer for `GL_ARRAY_BUFFER`.
-
-Mental model:
-
-```text
-GL_ARRAY_BUFFER
-       ↓
-      vbo
-```
-
----
-
-## Unbinding a Buffer
-
-OpenGL does not have a function called `glUnbindBuffer()`.
-
-Instead:
-
-```cpp
-glBindBuffer(target, 0);
-```
-
-Example:
+Use:
 
 ```cpp
 glBindBuffer(GL_ARRAY_BUFFER, 0);
 ```
 
-`0` means no user-created buffer object is currently bound to that target.
+`0` means no user-created buffer is currently bound to that target.
 
 ---
 
-## `glBufferData()`
+# 5. VAO — Vertex Array Object
 
-Format:
+A VAO stores the configuration required to interpret vertex data.
 
-```cpp
-glBufferData(
-    GLenum target,
-    GLsizeiptr size,
-    const void* data,
-    GLenum usage
-);
-```
+It remembers things such as:
 
-Example:
+* Vertex attribute configuration
+* Which vertex attributes are enabled
+* Vertex buffer association used by vertex attribute setup
 
-```cpp
-glBufferData(
-    GL_ARRAY_BUFFER,
-    sizeof(vertices),
-    vertices,
-    GL_STATIC_DRAW
-);
-```
-
-Parameters:
-
-```text
-target
-    Which buffer target receives the data.
-
-size
-    Number of bytes being uploaded.
-
-data
-    Pointer to the source data.
-
-usage
-    Hint describing expected usage.
-```
-
-Example usage:
-
-```cpp
-GL_STATIC_DRAW
-```
-
-means the data is expected to be specified relatively infrequently and used many times for drawing.
-
----
-
-## `glDeleteBuffers()`
-
-Format:
-
-```cpp
-glDeleteBuffers(
-    GLsizei n,
-    const GLuint* buffers
-);
-```
-
-Example:
-
-```cpp
-glDeleteBuffers(1, &vbo);
-```
-
-Used by the `VertexBuffer` destructor to release the OpenGL buffer.
-
----
-
-# Vertex Array Object — VAO
-
-## VBO vs VAO
-
-```text
-VBO
-    Stores vertex data.
-
-VAO
-    Stores the configuration/recipe describing
-    how vertex attributes are interpreted.
-```
-
-Example VBO:
-
-```text
-[x][y][x][y][x][y]
-```
-
-Corresponding VAO configuration:
-
-```text
-attribute 0
-    ├── 2 components
-    ├── GL_FLOAT
-    ├── GL_FALSE
-    ├── stride = 2 * sizeof(float)
-    └── offset = 0
-```
-
----
-
-## `glGenVertexArrays()`
-
-Format:
-
-```cpp
-glGenVertexArrays(
-    GLsizei n,
-    GLuint* arrays
-);
-```
-
-Example:
+Create:
 
 ```cpp
 glGenVertexArrays(1, &vao);
-```
-
----
-
-## `glBindVertexArray()`
-
-Format:
-
-```cpp
-glBindVertexArray(GLuint array);
 ```
 
 Bind:
@@ -504,31 +171,22 @@ Unbind:
 glBindVertexArray(0);
 ```
 
-Binding `0` means the user-created VAO is no longer bound.
-
-It does **not** mean that every attribute globally becomes disabled.
+`glBindVertexArray(0)` simply unbinds the currently bound VAO.
 
 ---
 
-## `glVertexAttribPointer()`
+# 6. Vertex Attributes
 
-Format:
+For a vertex containing two floats:
 
 ```cpp
-glVertexAttribPointer(
-    GLuint index,
-    GLint size,
-    GLenum type,
-    GLboolean normalized,
-    GLsizei stride,
-    const void* pointer
-);
+x, y
 ```
 
-Example:
+we can configure:
 
 ```cpp
-glVertexAttribPointer(
+vao.AddAttribute(
     0,
     2,
     GL_FLOAT,
@@ -538,126 +196,10 @@ glVertexAttribPointer(
 );
 ```
 
-### Parameters
-
-#### `index`
-
-Which vertex shader attribute is being configured.
-
-Example shader:
-
-```glsl
-layout(location = 0) in vec2 aPos;
-```
-
-Therefore:
+Internally:
 
 ```cpp
-index = 0;
-```
-
----
-
-#### `size`
-
-Number of components in the attribute.
-
-```text
-vec2 → 2
-vec3 → 3
-vec4 → 4
-```
-
----
-
-#### `type`
-
-Data type of each component.
-
-Example:
-
-```cpp
-GL_FLOAT
-```
-
----
-
-#### `normalized`
-
-Mostly relevant when integer vertex data is being converted to floating-point values.
-
-For normal floating-point position data:
-
-```cpp
-GL_FALSE
-```
-
----
-
-#### `stride`
-
-Number of bytes between the beginning of one vertex's attribute and the next vertex's same attribute.
-
-For:
-
-```text
-[x][y][x][y][x][y]
-```
-
-stride is:
-
-```cpp
-2 * sizeof(float)
-```
-
----
-
-#### `pointer`
-
-When a VBO is bound, this parameter represents the byte offset of the attribute inside each vertex.
-
-Position beginning at the first byte:
-
-```cpp
-0
-```
-
-If another attribute started after two floats, its byte offset would conceptually be:
-
-```cpp
-2 * sizeof(float)
-```
-
-passed as an offset/pointer value.
-
----
-
-## `glEnableVertexAttribArray()`
-
-```cpp
-glEnableVertexAttribArray(index);
-```
-
-`glVertexAttribPointer()` configures the attribute.
-
-`glEnableVertexAttribArray()` enables it.
-
-Our abstraction combines both inside:
-
-```cpp
-VertexArray::AddAttribute(...)
-```
-
----
-
-## VertexArray API
-
-```cpp
-VertexArray vao;
-
-vao.Bind();
-
-vao.AddAttribute(
+glVertexAttribPointer(
     index,
     size,
     type,
@@ -665,147 +207,115 @@ vao.AddAttribute(
     stride,
     pointer
 );
-
-vao.Unbind();
 ```
 
-Internally:
+### Parameters
+
+| Parameter    | Meaning                                    |
+| ------------ | ------------------------------------------ |
+| `index`      | Attribute location in the shader           |
+| `size`       | Number of components                       |
+| `type`       | Data type                                  |
+| `normalized` | Whether integer data should be normalized  |
+| `stride`     | Byte distance between consecutive vertices |
+| `pointer`    | Byte offset of the attribute               |
+
+For:
+
+```text
+x y
+```
+
+the stride is:
 
 ```cpp
-glVertexAttribPointer(...);
-glEnableVertexAttribArray(index);
+2 * sizeof(float)
+```
+
+and the first attribute begins at offset:
+
+```cpp
+0
 ```
 
 ---
 
-## VAO + VBO Configuration Order
+# 7. VAO + VBO Setup Order
 
-Important setup sequence:
+A typical setup is:
 
 ```cpp
 vao.Bind();
 vbo.Bind();
 
-vao.AddAttribute(...);
+vao.AddAttribute(
+    0,
+    2,
+    GL_FLOAT,
+    GL_FALSE,
+    2 * sizeof(float),
+    0
+);
+
+vao.Unbind();
+vbo.Unbind();
 ```
 
-Conceptually:
+The important idea:
 
 ```text
-Bind VAO
-   ↓
-Bind VBO
-   ↓
-Describe vertex attribute
-   ↓
-Configuration stored as VAO state
-```
+VBO
+ ↓
+contains actual vertex data
 
-Later during rendering, the VAO can be rebound without manually rebuilding the attribute layout.
+VAO
+ ↓
+contains information about how to interpret that data
+```
 
 ---
 
-# Shader System
+# 8. Shader Pipeline
 
-## Shader Pipeline
-
-Current shader abstraction:
+There are two important concepts:
 
 ```text
-Read Vertex Shader
-        ↓
-Create Vertex Shader Object
-        ↓
+Shader Objects
+    ↓
+Vertex Shader
+Fragment Shader
+    ↓
 Compile
-        ↓
-
-Read Fragment Shader
-        ↓
-Create Fragment Shader Object
-        ↓
-Compile
-        ↓
-
-Create Shader Program
-        ↓
-Attach Shaders
-        ↓
-Link Program
-        ↓
-Delete Temporary Shader Objects
-        ↓
-Keep Shader Program
+    ↓
+Shader Program
+    ↓
+Link
 ```
 
----
+### Shader object
 
-## `glCreateShader()`
-
-Format:
+Created using:
 
 ```cpp
-GLuint glCreateShader(GLenum shaderType);
+glCreateShader(GL_VERTEX_SHADER);
+glCreateShader(GL_FRAGMENT_SHADER);
 ```
 
-Examples:
+Source:
 
 ```cpp
-GLuint vertexShader =
-    glCreateShader(GL_VERTEX_SHADER);
-
-GLuint fragmentShader =
-    glCreateShader(GL_FRAGMENT_SHADER);
+glShaderSource(...);
 ```
 
----
-
-## `glShaderSource()`
-
-Format:
+Compile:
 
 ```cpp
-glShaderSource(
-    GLuint shader,
-    GLsizei count,
-    const GLchar* const* string,
-    const GLint* length
-);
+glCompileShader(...);
 ```
 
-Typical usage:
+Check:
 
 ```cpp
-const GLchar* shaderString = shaderData.c_str();
-GLint shaderLength =
-    static_cast<GLint>(shaderData.size());
-
-glShaderSource(
-    shader,
-    1,
-    &shaderString,
-    &shaderLength
-);
-```
-
----
-
-## `glCompileShader()`
-
-```cpp
-glCompileShader(shader);
-```
-
-Compiles the GLSL source stored inside a shader object.
-
----
-
-# Shader Compilation Checking
-
-Check compilation:
-
-```cpp
-GLint success = 0;
-
 glGetShaderiv(
     shader,
     GL_COMPILE_STATUS,
@@ -813,147 +323,80 @@ glGetShaderiv(
 );
 ```
 
-If compilation failed, first retrieve the required log length:
+Error information:
 
 ```cpp
-GLint logLength;
-
 glGetShaderiv(
     shader,
     GL_INFO_LOG_LENGTH,
     &logLength
 );
-```
 
-Then retrieve the log:
-
-```cpp
-glGetShaderInfoLog(
-    shader,
-    logLength,
-    nullptr,
-    infoLog
-);
-```
-
-Important distinction:
-
-```text
-Shader object
-    ↓
-glGetShaderiv()
-glGetShaderInfoLog()
+glGetShaderInfoLog(...);
 ```
 
 ---
 
-# Shader Program
+# 9. Shader Program
 
-## `glCreateProgram()`
+Create:
 
 ```cpp
-GLuint shaderProgram = glCreateProgram();
+GLuint program = glCreateProgram();
 ```
 
-Creates an initially empty program object.
-
----
-
-## `glAttachShader()`
+Attach shaders:
 
 ```cpp
-glAttachShader(shaderProgram, vertexShader);
-glAttachShader(shaderProgram, fragmentShader);
+glAttachShader(program, vertexShader);
+glAttachShader(program, fragmentShader);
 ```
 
-Attaches compiled shader stages to the program.
-
----
-
-## `glLinkProgram()`
+Link:
 
 ```cpp
-glLinkProgram(shaderProgram);
+glLinkProgram(program);
 ```
 
-Links the attached shader stages into an executable OpenGL shader program.
-
----
-
-# Program Link Checking
-
-Check link status:
+Check:
 
 ```cpp
-GLint success = 0;
-
 glGetProgramiv(
-    shaderProgram,
+    program,
     GL_LINK_STATUS,
     &success
 );
 ```
 
-Retrieve log length:
+Program errors:
 
 ```cpp
-GLint logLength;
-
-glGetProgramiv(
-    shaderProgram,
-    GL_INFO_LOG_LENGTH,
-    &logLength
-);
+glGetProgramInfoLog(...);
 ```
 
-Retrieve program link log:
-
-```cpp
-glGetProgramInfoLog(
-    shaderProgram,
-    logLength,
-    nullptr,
-    infoLog
-);
-```
-
-Important distinction:
-
-```text
-Shader object
-    ↓
-glGetShaderiv()
-glGetShaderInfoLog()
-
-Program object
-    ↓
-glGetProgramiv()
-glGetProgramInfoLog()
-```
-
----
-
-## Temporary Shader Objects
-
-After the shader program has linked successfully:
+After successful linking, the temporary shader objects can be deleted:
 
 ```cpp
 glDeleteShader(vertexShader);
 glDeleteShader(fragmentShader);
 ```
 
-The linked program remains valid.
-
-The individual shader objects are no longer required.
+The linked program remains usable.
 
 ---
 
-## Activating a Shader Program
+# 10. Using a Shader Program
 
-Bind/use:
+Bind:
 
 ```cpp
-glUseProgram(shaderProgram);
+glUseProgram(program);
+```
+
+Through our abstraction:
+
+```cpp
+shader.Bind();
 ```
 
 Unbind:
@@ -962,39 +405,28 @@ Unbind:
 glUseProgram(0);
 ```
 
-Our abstraction:
+Through our abstraction:
 
 ```cpp
-shader.Bind();
 shader.Unbind();
 ```
 
 ---
 
-## Deleting a Shader Program
+# 11. RAII
 
-```cpp
-glDeleteProgram(shaderProgram);
-```
+Our OpenGL resource classes use C++ RAII.
 
-Called by the `Shader` destructor.
-
----
-
-# RAII
-
-RAII = **Resource Acquisition Is Initialization**.
-
-The resource lifetime is tied to the C++ object's lifetime.
+The object owns the OpenGL resource.
 
 Example:
 
 ```text
-VertexBuffer constructor
+VertexBuffer object
         ↓
-glGenBuffers()
-
-VertexBuffer destructor
+owns VBO
+        ↓
+destructor
         ↓
 glDeleteBuffers()
 ```
@@ -1002,96 +434,98 @@ glDeleteBuffers()
 Similarly:
 
 ```text
-VertexArray
-    Constructor → glGenVertexArrays()
-    Destructor  → glDeleteVertexArrays()
-
-Shader
-    Constructor → glCreateProgram()
-    Destructor  → glDeleteProgram()
-
-Window
-    Constructor → create/init window resources
-    Destructor  → destroy window resources
+VertexArray → glDeleteVertexArrays()
+Shader      → glDeleteProgram()
+Window      → glfwDestroyWindow()
 ```
 
-This avoids having separate manual functions such as:
-
-```text
-Initialize()
-Destroy()
-Deinitialize()
-Cleanup()
-```
-
-for every resource.
+This means resource cleanup happens automatically when the owning C++ object is destroyed.
 
 ---
 
-## `std::ifstream` and RAII
+# 12. Renderer
+
+The Renderer is currently responsible for issuing high-level rendering commands.
+
+Current interface:
 
 ```cpp
-std::ifstream file(path);
-```
+class Renderer
+{
+public:
+    void Clear(float r, float g, float b, float a);
 
-When `file` goes out of scope, its destructor automatically closes the file.
-
-Therefore:
-
-```cpp
-file.close();
-```
-
-is usually unnecessary when normal scope-based destruction is sufficient.
-
----
-
-# Current Graphics Resource Usage
-
-Current setup boilerplate:
-
-```cpp
-float vertices[] = {
-     0.0f,  0.5f,
-    -0.5f, -0.5f,
-     0.5f, -0.5f
+    void Draw(
+        GLenum mode,
+        GLint startIndex,
+        GLsizei count
+    );
 };
+```
 
-VertexBuffer vbo(
-    GL_ARRAY_BUFFER,
-    sizeof(vertices),
-    vertices,
-    GL_STATIC_DRAW
-);
+### Clear
 
-VertexArray vao;
-
-vao.Bind();
-vbo.Bind();
-
-vao.AddAttribute(
-    0,
-    2,
-    GL_FLOAT,
-    GL_FALSE,
-    2 * sizeof(float),
-    0
-);
-
-vao.Unbind();
-
-Shader shader(
-    "src/vertex.glsl",
-    "src/fragment.glsl"
+```cpp
+renderer.Clear(
+    0.1f,
+    0.1f,
+    0.1f,
+    1.0f
 );
 ```
 
-Current raw draw sequence:
+Internally:
 
 ```cpp
-shader.Bind();
-vao.Bind();
+glClearColor(r, g, b, a);
+glClear(GL_COLOR_BUFFER_BIT);
+```
 
+### Draw
+
+```cpp
+renderer.Draw(
+    GL_TRIANGLES,
+    0,
+    3
+);
+```
+
+Internally:
+
+```cpp
+glDrawArrays(
+    mode,
+    startIndex,
+    count
+);
+```
+
+---
+
+# 13. `glDrawArrays`
+
+Basic form:
+
+```cpp
+glDrawArrays(
+    mode,
+    first,
+    count
+);
+```
+
+### Parameters
+
+| Parameter | Meaning            |
+| --------- | ------------------ |
+| `mode`    | Primitive type     |
+| `first`   | Starting vertex    |
+| `count`   | Number of vertices |
+
+Example:
+
+```cpp
 glDrawArrays(
     GL_TRIANGLES,
     0,
@@ -1099,53 +533,245 @@ glDrawArrays(
 );
 ```
 
-Conceptually:
+means:
 
 ```text
-Shader
-    ↓
-Which GPU program should execute?
+Primitive → triangles
+Start     → vertex 0
+Count     → 3 vertices
+```
 
-VAO
-    ↓
-How should the vertex data be interpreted?
+Common primitive modes:
 
-VBO
-    ↓
-Where is the vertex data?
-
-Draw Call
-    ↓
-Render the geometry
+```cpp
+GL_TRIANGLES
+GL_LINES
+GL_POINTS
+GL_TRIANGLE_STRIP
 ```
 
 ---
 
-# Important C++ Resource Ownership Note
+# 14. Current Rendering Pipeline
 
-Classes such as:
+Our current triangle pipeline is:
 
 ```text
-VertexBuffer
-VertexArray
-Shader
+Application
+     │
+     ├── Window
+     │
+     ├── VertexBuffer
+     │
+     ├── VertexArray
+     │
+     ├── Shader
+     │
+     └── Renderer
+             │
+             ↓
+        OpenGL commands
 ```
 
-own OpenGL resources.
+Setup:
 
-Default C++ copying can therefore eventually become dangerous.
+```text
+Create VBO
+    ↓
+Upload vertex data
+    ↓
+Create VAO
+    ↓
+Configure vertex attributes
+    ↓
+Create Shader
+    ↓
+Compile shaders
+    ↓
+Link program
+```
 
-Example:
+Per frame:
+
+```text
+Poll Events
+     ↓
+Clear
+     ↓
+Bind Shader
+     ↓
+Bind VAO
+     ↓
+Renderer.Draw()
+     ↓
+Unbind VAO
+     ↓
+Unbind Shader
+     ↓
+Swap Buffers
+```
+
+---
+
+# 15. Current Application Loop
+
+The main entry point is intentionally minimal:
 
 ```cpp
-VertexBuffer a(...);
+int main()
+{
+    try
+    {
+        Application app;
+        app.RunApplication();
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << "\n";
+    }
+
+    return 0;
+}
+```
+
+`main.cpp` is responsible only for:
+
+* Creating the application
+* Starting it
+* Handling top-level exceptions
+
+The actual application lifecycle is handled by `Application`.
+
+---
+
+# 16. Important Architecture Principle
+
+Current responsibility separation:
+
+```text
+Window
+→ GLFW / window / context / events
+
+VertexBuffer
+→ VBO resource
+
+VertexArray
+→ VAO + vertex attribute configuration
+
+Shader
+→ shader loading / compilation / linking / program
+
+Renderer
+→ rendering commands
+
+Application
+→ owns the current systems and coordinates the pipeline
+```
+
+The Renderer currently **does not own** the VBO, VAO, or Shader.
+
+It simply issues rendering commands using the OpenGL state prepared by the caller.
+
+---
+
+# 17. Current Limitation
+
+The current Application still knows too much about low-level rendering:
+
+```cpp
+shader.Bind();
+vao.Bind();
+
+renderer.Draw(
+    GL_TRIANGLES,
+    0,
+    3
+);
+```
+
+This is acceptable at the current stage.
+
+As the engine grows, we want to move toward:
+
+```text
+Game
+ ↓
+Renderable object
+ ↓
+Renderer
+ ↓
+OpenGL
+```
+
+Potential future abstractions:
+
+```text
+Mesh
+├── VertexBuffer
+└── VertexArray
+
+Material
+└── Shader
+
+Sprite / Renderable
+├── Mesh
+├── Material
+└── Transform
+```
+
+The exact architecture will be decided before implementing these abstractions.
+
+---
+
+# 18. C++ Resource Ownership Warning
+
+OpenGL handles such as:
+
+```cpp
+GLuint vbo;
+GLuint vao;
+GLuint shaderProgram;
+```
+
+represent resources owned by the corresponding C++ objects.
+
+Default copying can therefore become dangerous:
+
+```cpp
+VertexBuffer a;
 VertexBuffer b = a;
 ```
 
-Both objects could end up storing the same underlying OpenGL ID.
+Both objects could end up believing they own the same OpenGL resource and both destructors could attempt to delete it.
 
-That creates an ownership problem because both destructors may attempt to release the same GPU resource.
+This will need to be addressed as the resource architecture becomes more sophisticated.
 
-This will later be handled using proper copy/move semantics.
+---
 
-Do not implement it yet unless the architecture reaches the point where copying these objects is required.
+# 19. Current Golden Rule
+
+Think of the graphics system as:
+
+```text
+DATA
+ ↓
+VertexBuffer
+
+INTERPRETATION
+ ↓
+VertexArray
+
+PROGRAM
+ ↓
+Shader
+
+COMMAND
+ ↓
+Renderer
+
+ORCHESTRATION
+ ↓
+Application
+```
+
+This is the foundation we are building on.

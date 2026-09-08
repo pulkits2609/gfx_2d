@@ -21,6 +21,7 @@ add_executable(gfx
     src/Graphics/vertexBuffer.cpp
     src/Graphics/vertexArray.cpp
     src/Graphics/shader.cpp
+    src/Graphics/renderer.cpp
 )
 
 target_include_directories(gfx

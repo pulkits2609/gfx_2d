@@ -1,674 +1,794 @@
-# Project Structure Explanation
+# GFX_2D — Project Structure & Architecture
 
-Current architectural direction:
-
-```text
-Application
-├── Window
-├── Renderer
-└── Game
-    ├── Player
-    └── NetworkClient
-```
-
-Graphics internals:
+## 1. Current Project Structure
 
 ```text
-Renderer
-    ↓
-Uses graphics resources
-├── Shader
-├── VertexArray
-└── VertexBuffer
+gfx_2d/
+│
+├── CMakeLists.txt
+├── README.md
+│
+├── docs/
+│   ├── cheatsheet.md
+│   └── structure_explain.md
+│
+├── external/
+│   ├── glad/
+│   └── glad-generated/
+│
+├── include/
+│   ├── Core/
+│   │   ├── application.hpp
+│   │   └── window.hpp
+│   │
+│   └── Graphics/
+│       ├── renderer.hpp
+│       ├── vertexBuffer.hpp
+│       ├── vertexArray.hpp
+│       └── shader.hpp
+│
+└── src/
+    ├── main.cpp
+    │
+    ├── Core/
+    │   ├── application.cpp
+    │   └── window.cpp
+    │
+    ├── Graphics/
+    │   ├── renderer.cpp
+    │   ├── vertexBuffer.cpp
+    │   ├── vertexArray.cpp
+    │   └── shader.cpp
+    │
+    ├── vertex.glsl
+    └── fragment.glsl
 ```
-
-The important architectural idea is that the Renderer should **use renderable resources**, rather than becoming responsible for manually creating every VBO, VAO, shader, texture, etc.
 
 ---
 
-# Application
+# 2. High-Level Architecture
 
-`Application` is the main high-level owner/orchestrator of the program.
-
-Responsibilities:
+The current architecture is:
 
 ```text
 Application
-├── Own Window
-├── Own Renderer
-├── Own Game
-└── Run main application loop
+│
+├── Window
+│
+├── VertexBuffer
+│
+├── VertexArray
+│
+├── Shader
+│
+└── Renderer
 ```
 
-The purpose is to keep `main.cpp` extremely small.
+The important distinction is that these objects have different responsibilities.
 
-Target `main.cpp`:
+```text
+Application
+    ↓
+Coordinates everything
+
+Window
+    ↓
+Owns the window and OpenGL context
+
+VertexBuffer
+    ↓
+Owns vertex data on the GPU
+
+VertexArray
+    ↓
+Defines how vertex data is interpreted
+
+Shader
+    ↓
+Owns the linked shader program
+
+Renderer
+    ↓
+Issues rendering commands
+```
+
+---
+
+# 3. `main.cpp`
+
+The goal of `main.cpp` is to remain extremely small.
+
+Current version:
 
 ```cpp
-int main(){
-    try{
+#include <iostream>
+#include <cmath>
+#include "../include/Core/application.hpp"
+
+int main()
+{
+    try
+    {
         Application app;
         app.RunApplication();
     }
-    catch(const std::exception& e){
+    catch(const std::exception& e)
+    {
         std::cerr << e.what() << "\n";
     }
+
+    return 0;
 }
 ```
 
-The application loop conceptually becomes:
+The old monolithic OpenGL implementation has been removed from the active application flow.
 
-```text
-while application is running
-    ↓
-process events
-    ↓
-update game
-    ↓
-render frame
-    ↓
-present frame
-```
+`main.cpp` should not know how:
 
-`Application` coordinates systems.
+* GLFW is initialized
+* OpenGL is initialized
+* buffers are created
+* shaders are compiled
+* vertices are configured
+* rendering happens
 
-It should not contain low-level GLFW/OpenGL setup details.
+It simply starts the application.
 
 ---
 
-# Window
+# 4. Application
 
-`Window` owns the GLFW window and handles window/context-specific responsibilities.
-
-Responsibilities currently include:
-
-```text
-Window
-├── Initialize GLFW
-├── Create GLFW window
-├── Make OpenGL context current
-├── Initialize GLAD
-├── Set initial OpenGL viewport
-├── Register framebuffer resize callback
-├── Check close state
-├── Poll events
-├── Swap buffers
-└── Destroy window / terminate GLFW
-```
-
-Important API:
-
-```cpp
-Window(...);
-~Window();
-
-bool ShouldClose();
-
-void PollEvents();
-
-void SwapBuffers();
-
-GLFWwindow* GetNativeWindow();
-```
-
-Window does **not** own the main application loop.
-
-The loop belongs to `Application`.
-
-Window also should not directly contain game-specific behavior.
-
-For example:
-
-```text
-Window minimized
-      ↓
-Event system / Application
-      ↓
-Game decides whether to pause
-```
-
-Instead of:
-
-```text
-Window
-    ↓
-Game::Pause()
-```
-
-This keeps dependencies flowing in the correct direction.
-
----
-
-# VertexBuffer
-
-`VertexBuffer` owns one OpenGL buffer object.
-
-Current internal state:
-
-```cpp
-GLuint vbo;
-GLenum target;
-```
-
-The target is remembered so that callers do not repeatedly pass:
-
-```cpp
-GL_ARRAY_BUFFER
-```
-
-when binding/unbinding.
-
-Responsibilities:
-
-```text
-VertexBuffer
-├── Generate VBO
-├── Bind VBO
-├── Upload vertex data
-├── Unbind VBO
-└── Delete VBO
-```
-
-Constructor encapsulates:
-
-```cpp
-glGenBuffers();
-glBindBuffer();
-glBufferData();
-```
-
-Bind:
-
-```cpp
-glBindBuffer(target, vbo);
-```
-
-Unbind:
-
-```cpp
-glBindBuffer(target, 0);
-```
-
-Destructor:
-
-```cpp
-glDeleteBuffers();
-```
+`Application` is currently the central coordinator.
 
 Conceptually:
 
 ```text
-CPU vertex data
-      ↓
-VertexBuffer
-      ↓
-OpenGL buffer
-      ↓
-GPU-accessible vertex data
+Application
+│
+├── Window
+├── VertexBuffer
+├── VertexArray
+├── Shader
+└── Renderer
 ```
+
+It is responsible for coordinating these systems rather than implementing their low-level behavior itself.
+
+### Current responsibilities
+
+* Create the window
+* Create graphics resources
+* Configure the initial renderable
+* Run the game loop
+* Coordinate rendering
 
 ---
 
-# VertexArray
+# 5. Window
 
-`VertexArray` owns one OpenGL Vertex Array Object.
+`Window` encapsulates GLFW and the OpenGL context setup.
 
-Internal state:
-
-```cpp
-GLuint vao;
+```text
+Application
+     ↓
+   Window
+     ↓
+    GLFW
+     ↓
+OpenGL Context
 ```
 
-A VAO stores the configuration/recipe describing how vertex attributes should be interpreted.
+### Window responsibilities
 
-Responsibilities:
+* Initialize GLFW
+* Create the GLFW window
+* Create/make current the OpenGL context
+* Initialize GLAD
+* Configure framebuffer resizing
+* Poll events
+* Swap buffers
+* Determine whether the window should close
+* Destroy the window
+* Terminate GLFW
+
+Application therefore does not need to directly manage GLFW lifecycle details.
+
+---
+
+# 6. VertexBuffer
+
+`VertexBuffer` is an RAII wrapper around a VBO.
+
+```text
+VertexBuffer
+     ↓
+OpenGL VBO
+```
+
+### Responsibilities
+
+* Generate VBO
+* Remember its buffer target
+* Upload vertex data
+* Bind VBO
+* Unbind VBO
+* Delete VBO
+
+Current interface:
+
+```cpp
+VertexBuffer(
+    GLenum target,
+    GLsizeiptr size,
+    const GLvoid* data,
+    GLenum usage
+);
+
+void Bind();
+void Unbind();
+```
+
+The class remembers the target internally so callers do not repeatedly provide it.
+
+---
+
+# 7. VertexArray
+
+`VertexArray` is an RAII wrapper around a VAO.
 
 ```text
 VertexArray
-├── Generate VAO
-├── Bind VAO
-├── Unbind VAO
-├── Configure attributes
-├── Enable attributes
-└── Delete VAO
+     ↓
+OpenGL VAO
 ```
 
-Constructor:
+### Responsibilities
 
-```cpp
-glGenVertexArrays();
-```
-
-Bind:
-
-```cpp
-glBindVertexArray(vao);
-```
-
-Unbind:
-
-```cpp
-glBindVertexArray(0);
-```
-
-Attribute setup:
-
-```cpp
-glVertexAttribPointer();
-glEnableVertexAttribArray();
-```
+* Generate VAO
+* Bind VAO
+* Unbind VAO
+* Configure vertex attributes
+* Delete VAO
 
 Current abstraction:
 
 ```cpp
-vao.AddAttribute(
-    index,
-    size,
-    type,
-    normalized,
-    stride,
-    pointer
+void AddAttribute(
+    GLuint index,
+    GLint size,
+    GLenum type,
+    GLboolean normalized,
+    GLsizei stride,
+    const void* pointer
 );
 ```
 
-Destructor:
+Internally this configures:
 
 ```cpp
-glDeleteVertexArrays();
-```
-
-Conceptually:
-
-```text
-VertexBuffer
-    ↓
-contains raw data
-
-VertexArray
-    ↓
-describes how that raw data
-should be interpreted
-```
-
-Example:
-
-```text
-VBO
-
-[x][y][x][y][x][y]
-
-VAO
-
-Attribute 0
-├── 2 components
-├── GL_FLOAT
-├── stride = 2 * sizeof(float)
-└── offset = 0
+glVertexAttribPointer(...);
+glEnableVertexAttribArray(...);
 ```
 
 ---
 
-# Shader
+# 8. Shader
 
-`Shader` owns the final linked OpenGL shader program.
+`Shader` represents the linked OpenGL shader program.
 
-Internal state:
-
-```cpp
-GLuint shaderProgram;
-```
-
-Responsibilities:
+Internally it performs:
 
 ```text
-Shader
-├── Read GLSL files
-├── Create vertex shader
-├── Create fragment shader
-├── Supply GLSL source
-├── Compile shaders
-├── Check compilation
-├── Create shader program
-├── Attach shaders
-├── Link shader program
-├── Check linking
-├── Delete temporary shader objects
-├── Bind shader program
-├── Unbind shader program
-└── Delete final shader program
+Read GLSL files
+     ↓
+Create vertex shader
+     ↓
+Create fragment shader
+     ↓
+Compile
+     ↓
+Check compilation
+     ↓
+Create program
+     ↓
+Attach shaders
+     ↓
+Link
+     ↓
+Check linking
+     ↓
+Delete temporary shader objects
 ```
 
-Current high-level flow:
+The final linked program remains owned by `Shader`.
+
+### Responsibilities
+
+* Read shader source files
+* Compile vertex shader
+* Compile fragment shader
+* Check compilation errors
+* Create shader program
+* Link program
+* Check linking errors
+* Bind program
+* Unbind program
+* Delete program
+
+---
+
+# 9. Renderer
+
+The Renderer is the newest layer.
+
+Its current job is intentionally small.
 
 ```text
-vertex.glsl
-    ↓
-readShader()
-    ↓
-glCreateShader(GL_VERTEX_SHADER)
-    ↓
-CompileShader()
-        ↓
-    glShaderSource()
-        ↓
-    glCompileShader()
-        ↓
-    compilation check
-
-
-fragment.glsl
-    ↓
-readShader()
-    ↓
-glCreateShader(GL_FRAGMENT_SHADER)
-    ↓
-CompileShader()
-
-
-Compiled Vertex Shader ─────┐
-                            ├── LinkProgram()
-Compiled Fragment Shader ───┘
-                                  ↓
-                          glCreateProgram()
-                                  ↓
-                          glAttachShader()
-                                  ↓
-                           glLinkProgram()
-                                  ↓
-                           Shader Program
+Renderer
+│
+├── Clear()
+└── Draw()
 ```
 
-After linking:
+### `Clear()`
+
+Responsible for:
 
 ```cpp
-glDeleteShader(vertexShader);
-glDeleteShader(fragmentShader);
+glClearColor(...);
+glClear(GL_COLOR_BUFFER_BIT);
 ```
 
-The final program remains alive.
+### `Draw()`
 
-Bind:
+Responsible for issuing:
 
 ```cpp
-glUseProgram(shaderProgram);
+glDrawArrays(
+    mode,
+    first,
+    count
+);
 ```
 
-Unbind:
+Current API:
 
 ```cpp
-glUseProgram(0);
-```
-
-Destructor:
-
-```cpp
-glDeleteProgram(shaderProgram);
+void Draw(
+    GLenum mode,
+    GLint startIndex,
+    GLsizei count
+);
 ```
 
 ---
 
-# Renderer
+# 10. Renderer Does Not Own Resources
 
-Renderer is the next major system.
-
-Its job should be:
-
-> Take already-created renderable resources and issue the commands required to render them.
-
-It should **not** become responsible for manually constructing every shader, vertex buffer, vertex array, texture, player, sprite, etc.
-
-Bad direction:
+An important current architectural decision:
 
 ```text
 Renderer
-├── Create every VBO
-├── Create every VAO
-├── Compile every shader
-├── Create every texture
-├── Know every game object
-└── Draw everything
+    ✗ does not own VertexBuffer
+    ✗ does not own VertexArray
+    ✗ does not own Shader
 ```
 
-That would turn Renderer into a giant tightly-coupled class.
-
-Preferred direction:
+Instead:
 
 ```text
-Graphics / Game resources
-        ↓
-already exist
-        ↓
-Renderer
-        ↓
-uses them to issue draw calls
+Application
+    │
+    ├── owns resources
+    │
+    └── prepares OpenGL state
+             ↓
+          Renderer
+             ↓
+       issues draw command
 ```
 
-Current low-level rendering sequence:
+This prevents Renderer from becoming a giant class that creates and manages every graphics resource.
+
+---
+
+# 11. Current Initialization Pipeline
+
+When `Application` is constructed:
+
+```text
+Application
+    │
+    ├── Window
+    │     ├── GLFW initialization
+    │     ├── Window creation
+    │     ├── OpenGL context
+    │     └── GLAD
+    │
+    ├── VertexBuffer
+    │     └── Vertex data uploaded
+    │
+    ├── VertexArray
+    │     └── Vertex attributes configured
+    │
+    ├── Shader
+    │     ├── Vertex shader
+    │     ├── Fragment shader
+    │     └── Linked program
+    │
+    └── Renderer
+```
+
+---
+
+# 12. Triangle Setup
+
+The current test geometry:
 
 ```cpp
+float vertices[] =
+{
+     0.0f,  0.5f,
+    -0.5f, -0.5f,
+     0.5f, -0.5f
+};
+```
+
+represents three 2D vertices:
+
+```text
+       (0, 0.5)
+          /\
+         /  \
+        /    \
+       /______\
+(-0.5,-0.5)  (0.5,-0.5)
+```
+
+Each vertex contains:
+
+```text
+X
+Y
+```
+
+Therefore:
+
+```cpp
+stride = 2 * sizeof(float);
+```
+
+and the attribute starts at:
+
+```cpp
+offset = 0;
+```
+
+---
+
+# 13. VAO Setup Pipeline
+
+The current setup is:
+
+```text
+Create VBO
+    ↓
+Upload vertex data
+    ↓
+Create VAO
+    ↓
+Bind VAO
+    ↓
+Bind VBO
+    ↓
+Configure attribute 0
+    ↓
+Enable attribute 0
+    ↓
+Unbind VAO
+    ↓
+Unbind VBO
+```
+
+The VAO now remembers how the vertex data should be interpreted.
+
+---
+
+# 14. Rendering Pipeline
+
+Each frame currently follows:
+
+```text
+GameLoop
+    │
+    ├── PollEvents
+    │
+    ├── Renderer.Clear()
+    │
+    ├── Shader.Bind()
+    │
+    ├── VertexArray.Bind()
+    │
+    ├── Renderer.Draw(
+    │       GL_TRIANGLES,
+    │       0,
+    │       3
+    │   )
+    │
+    ├── VertexArray.Unbind()
+    │
+    ├── Shader.Unbind()
+    │
+    └── SwapBuffers()
+```
+
+The important sequence is:
+
+```text
+Prepare OpenGL state
+        ↓
+Issue draw command
+        ↓
+Present framebuffer
+```
+
+---
+
+# 15. Why Renderer Exists
+
+Without Renderer, Application would directly contain:
+
+```cpp
+glClearColor(...);
+glClear(...);
+
 shader.Bind();
 vao.Bind();
 
-glDrawArrays(
-    GL_TRIANGLES,
-    0,
-    3
-);
+glDrawArrays(...);
+
+vao.Unbind();
+shader.Unbind();
 ```
 
-Renderer will eventually abstract this operation.
+That causes Application to know too much about OpenGL.
 
-Before defining its final API, we still need to decide what information represents a complete draw call.
+With Renderer:
 
-Possible information includes:
+```cpp
+renderer.Clear(...);
+
+shader.Bind();
+vao.Bind();
+
+renderer.Draw(...);
+```
+
+The actual draw command is now centralized behind Renderer.
+
+This is the beginning of separating:
 
 ```text
-Shader / Material
-VertexArray / Mesh
-Primitive type
-Starting vertex
-Vertex count
-```
+WHAT should happen?
+        ↓
+Application / Game
 
-This architectural decision should be made before implementing the Renderer.
+HOW does OpenGL perform it?
+        ↓
+Graphics layer
+```
 
 ---
 
-# Game
+# 16. Current Architecture vs Future Architecture
 
-Future system.
-
-`Game` owns game-specific state and logic.
-
-Examples:
+### Current
 
 ```text
-Game
-├── Players
-├── World state
-├── gameplay update
-├── collision/game rules
-└── networking interaction
+Application
+│
+├── Window
+├── VertexBuffer
+├── VertexArray
+├── Shader
+└── Renderer
 ```
 
-Game should not directly contain raw GLFW/OpenGL management.
+This is intentionally low-level because we are building the engine from the bottom up.
 
-Long-term direction:
+### Future direction
+
+Eventually we want something closer to:
+
+```text
+Application
+│
+├── Window
+├── Renderer
+└── Game
+     │
+     └── Renderable Objects
+          │
+          ├── Mesh
+          │    ├── VertexBuffer
+          │    └── VertexArray
+          │
+          ├── Material
+          │    └── Shader
+          │
+          └── Transform
+```
+
+Potentially:
 
 ```text
 Game
-    ↓
-Renderable objects
-    ↓
+ ↓
+Sprite / Renderable
+ ↓
 Renderer
-    ↓
-Graphics resources
-    ↓
+ ↓
 OpenGL
 ```
 
 ---
 
-# Player
+# 17. Why We Are Not Building Everything Yet
 
-Future game object.
-
-Possible responsibilities:
+It would be tempting to immediately create:
 
 ```text
-Player
-├── Position
-├── Movement
-├── State
-└── Network identity/state
-```
-
-Rendering and networking responsibilities should remain separated where practical.
-
----
-
-# NetworkClient
-
-Future networking system.
-
-Responsible for client/server communication.
-
-Possible responsibilities:
-
-```text
-NetworkClient
-├── Connect to server
-├── Send local player state/input
-├── Receive remote state
-└── Expose network events/state to Game
-```
-
-Desired separation:
-
-```text
-NetworkClient
-      ↓
-    Game
-      ↓
-  Renderer
-```
-
-Renderer should never care whether player coordinates originated locally or over the network.
-
-It should simply receive/render the current game state.
-
----
-
-# Current Dependency Direction
-
-```text
-main
- ↓
-Application
- ├──────────────→ Window
- │
- ├──────────────→ Renderer
- │                   ↓
- │             Graphics Resources
- │             ├── Shader
- │             ├── VertexArray
- │             └── VertexBuffer
- │
- └──────────────→ Game
-                     ↓
-                  Player
-                     ↓
-                NetworkClient
-```
-
-The goal is to keep lower-level systems independent from higher-level systems.
-
-For example:
-
-```text
-VertexBuffer
-```
-
-should not know about:
-
-```text
+Mesh
+Material
+Texture
+Sprite
+Transform
+RenderCommand
+ResourceManager
 Renderer
-Game
-Player
-Application
-Window
-NetworkClient
 ```
 
-It only knows:
+But that would hide the important concepts before they are understood.
 
-> I own and manage an OpenGL buffer.
-
-Similarly:
+The current progression is deliberate:
 
 ```text
+OpenGL
+   ↓
+Window
+   ↓
+VBO
+   ↓
+VAO
+   ↓
 Shader
+   ↓
+Renderer
+   ↓
+Mesh
+   ↓
+Material
+   ↓
+Renderable / Sprite
+   ↓
+Game
 ```
 
-only needs to understand shader/program management.
-
-This keeps the engine modular and scalable.
+Each layer should solve a specific problem before another abstraction is added.
 
 ---
 
-# Current Resource Setup
+# 18. Current Dependency Direction
 
-Current graphics-resource initialization pattern:
+The intended dependency direction is:
 
-```cpp
-float vertices[] = {
-     0.0f,  0.5f,
-    -0.5f, -0.5f,
-     0.5f, -0.5f
-};
-
-VertexBuffer vbo(
-    GL_ARRAY_BUFFER,
-    sizeof(vertices),
-    vertices,
-    GL_STATIC_DRAW
-);
-
-VertexArray vao;
-
-vao.Bind();
-vbo.Bind();
-
-vao.AddAttribute(
-    0,
-    2,
-    GL_FLOAT,
-    GL_FALSE,
-    2 * sizeof(float),
-    0
-);
-
-vao.Unbind();
-
-Shader shader(
-    "src/vertex.glsl",
-    "src/fragment.glsl"
-);
+```text
+Application
+    ↓
+Core / Graphics
+    ↓
+OpenGL / GLFW
 ```
 
-Current drawing sequence:
+Application coordinates systems.
+
+Graphics classes hide OpenGL details.
+
+Window hides GLFW details.
+
+The lower-level systems should not depend on the Game layer.
+
+---
+
+# 19. Current Milestone
+
+The first complete rendering abstraction milestone is now finished.
+
+We have successfully moved from:
+
+```text
+main.cpp
+    ↓
+Everything directly implemented with OpenGL
+```
+
+to:
+
+```text
+main.cpp
+    ↓
+Application
+    ↓
+Window + Graphics abstractions
+    ↓
+Renderer
+    ↓
+OpenGL
+```
+
+The application now successfully:
+
+* Creates a window
+* Initializes OpenGL
+* Initializes GLAD
+* Loads vertex data
+* Configures a VAO
+* Compiles GLSL shaders
+* Links a shader program
+* Clears the framebuffer
+* Draws a triangle
+* Handles framebuffer resizing
+* Presents frames
+* Cleans up resources through RAII
+
+---
+
+# 20. Next Architectural Question
+
+The current pipeline still contains:
 
 ```cpp
 shader.Bind();
 vao.Bind();
 
-glDrawArrays(
-    GL_TRIANGLES,
-    0,
-    3
-);
+renderer.Draw(...);
 ```
 
-This is temporary low-level usage.
+Therefore `Application` still knows that rendering requires:
 
-The next architecture step is to determine what information the future Renderer receives for each draw call.
+```text
+Shader
++
+VertexArray
++
+Draw parameters
+```
+
+The next architectural problem is:
+
+> How do we represent a drawable object so that Application/Game does not need to understand individual OpenGL resources?
+
+This leads toward concepts such as:
+
+```text
+Mesh
+Material
+Renderable
+Sprite
+```
+
+Before implementing those classes, the Renderer API and ownership model should be reconsidered.
+
+The goal is eventually to reach:
+
+```text
+Game
+ ↓
+"Draw this object"
+ ↓
+Renderer
+ ↓
+OpenGL
+```
+
+without turning Renderer into a god class.
