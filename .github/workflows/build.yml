@@ -1,0 +1,200 @@
+name: Build GFX 2D
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+
+  # ============================================================
+  # WINDOWS BUILD
+  # ============================================================
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Configure CMake
+        run: cmake -S . -B build -A x64
+
+      - name: Build project
+        run: cmake --build build --config Release
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build/Release/gfx.exe")) {
+              Write-Error "gfx.exe was not found."
+              exit 1
+          }
+
+          Write-Host "gfx.exe found successfully."
+
+      - name: Verify runtime assets
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build/Release/assets/shaders/vertex.glsl")) {
+              Write-Error "vertex.glsl was not found."
+              exit 1
+          }
+
+          if (-not (Test-Path "build/Release/assets/shaders/fragment.glsl")) {
+              Write-Error "fragment.glsl was not found."
+              exit 1
+          }
+
+          Write-Host "Runtime shader assets found successfully."
+
+      - name: Prepare Windows package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/gfx_2d-windows-x64 | Out-Null
+
+          Copy-Item `
+            "build/Release/gfx.exe" `
+            "dist/gfx_2d-windows-x64/"
+
+          Copy-Item `
+            "build/Release/assets" `
+            "dist/gfx_2d-windows-x64/assets" `
+            -Recurse
+
+      - name: Create Windows archive
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "dist/gfx_2d-windows-x64" `
+            -DestinationPath "gfx_2d-windows-x64.zip"
+
+      - name: Upload Windows CI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gfx_2d-windows-x64
+          path: gfx_2d-windows-x64.zip
+
+
+  # ============================================================
+  # UBUNTU BUILD
+  # ============================================================
+
+  build-linux:
+    name: Build Ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            libx11-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libwayland-egl1-mesa \
+            libgl1-mesa-dev
+
+      - name: Configure CMake
+        run: cmake -S . -B build
+
+      - name: Build project
+        run: cmake --build build
+
+      - name: Verify executable
+        run: |
+          test -f build/gfx
+          test -x build/gfx
+
+          echo "gfx executable found successfully."
+
+      - name: Verify runtime assets
+        run: |
+          test -f build/assets/shaders/vertex.glsl
+          test -f build/assets/shaders/fragment.glsl
+
+          echo "Runtime shader assets found successfully."
+
+      - name: Prepare Linux package
+        run: |
+          mkdir -p dist/gfx_2d-linux-x64
+
+          cp build/gfx \
+             dist/gfx_2d-linux-x64/
+
+          cp -r build/assets \
+                dist/gfx_2d-linux-x64/
+
+      - name: Create Linux archive
+        run: |
+          tar -czf \
+            gfx_2d-linux-x64.tar.gz \
+            -C dist \
+            gfx_2d-linux-x64
+
+      - name: Upload Linux CI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gfx_2d-linux-x64
+          path: gfx_2d-linux-x64.tar.gz
+
+
+  # ============================================================
+  # GITHUB RELEASE
+  # ============================================================
+
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build-windows
+      - build-linux
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Download Windows package
+        uses: actions/download-artifact@v5
+        with:
+          name: gfx_2d-windows-x64
+          path: release-assets
+
+      - name: Download Linux package
+        uses: actions/download-artifact@v5
+        with:
+          name: gfx_2d-linux-x64
+          path: release-assets
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            release-assets/gfx_2d-windows-x64.zip \
+            release-assets/gfx_2d-linux-x64.tar.gz \
+            --title "GFX 2D ${{ github.ref_name }}" \
+            --generate-notes
