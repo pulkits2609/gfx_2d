@@ -1,4 +1,4 @@
-#include"../include/Graphics/renderer.hpp"
+#include"Graphics/renderer.hpp"
 
 void Renderer::Clear(float r, float g, float b, float a){
     glClearColor(r,g,b,a);

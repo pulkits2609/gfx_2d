@@ -1,4 +1,4 @@
-#include "../../include/Core/window.hpp"
+#include "Core/window.hpp"
 #include<iostream>
 
 Window::Window(int width, int height, const std::string& windowName):window(nullptr){

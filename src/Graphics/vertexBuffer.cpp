@@ -1,4 +1,4 @@
-#include"../include/Graphics/vertexBuffer.hpp"
+#include"Graphics/vertexBuffer.hpp"
 
 
 //the constructor should encapsulate

@@ -1,4 +1,4 @@
-#include<../include/Graphics/shader.hpp>
+#include<Graphics/shader.hpp>
 
 Shader::Shader(const std::string& vertexFile, const std::string& fragmentFile):shaderProgram(0){
     std::string vertexData = readShader(vertexFile);

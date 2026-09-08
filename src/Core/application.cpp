@@ -1,4 +1,4 @@
-#include"../include/Core/application.hpp"
+#include"Core/application.hpp"
 
 Application::Application():window(1200,1200,"GFX_2D"),
 vbo(

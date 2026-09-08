@@ -1,4 +1,4 @@
-#include"../include/Graphics/vertexArray.hpp"
+#include"Graphics/vertexArray.hpp"
 
 VertexArray::VertexArray():vao(0){
     glGenVertexArrays(1, &vao);
