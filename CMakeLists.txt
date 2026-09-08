@@ -10,14 +10,25 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(OpenGL REQUIRED)
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(GLFW REQUIRED glfw3)
+include(FetchContent)
+
+FetchContent_Declare(
+    glfw
+    GIT_REPOSITORY https://github.com/glfw/glfw.git
+    GIT_TAG 3.4
+)
+
+FetchContent_MakeAvailable(glfw)
 
 add_executable(gfx
+
     src/main.cpp
+
     external/glad-generated/src/gl.c
+
     src/Core/window.cpp
     src/Core/application.cpp
+
     src/Graphics/vertexBuffer.cpp
     src/Graphics/vertexArray.cpp
     src/Graphics/shader.cpp
@@ -26,13 +37,20 @@ add_executable(gfx
 
 target_include_directories(gfx
     PRIVATE
-        ${GLFW_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/external/glad-generated/include
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_link_libraries(gfx
     PRIVATE
-        ${GLFW_LIBRARIES}
+        glfw
         OpenGL::GL
+)
+
+# Runtime Assets
+
+add_custom_command(TARGET gfx POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/assets
+        $<TARGET_FILE_DIR:gfx>/assets
 )

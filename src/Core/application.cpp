@@ -8,7 +8,10 @@ vbo(
     GL_STATIC_DRAW
 ),
 vao(),
-shader("src/vertex.glsl", "src/fragment.glsl"),
+shader(
+    "assets/shaders/vertex.glsl",
+    "assets/shaders/fragment.glsl"
+),
 renderer(){
     float vertices[] = {
         0.0f, 0.5f,
