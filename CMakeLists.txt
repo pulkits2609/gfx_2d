@@ -38,6 +38,7 @@ add_executable(gfx
     src/Graphics/vertexArray.cpp
     src/Graphics/shader.cpp
     src/Graphics/renderer.cpp
+    src/Graphics/mesh.cpp
 )
 
 target_include_directories(gfx
