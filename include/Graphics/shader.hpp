@@ -4,6 +4,7 @@
 #include<fstream>
 #include<string>
 #include<iostream>
+#include<glm/glm.hpp>
 
 // Shader
 // │
@@ -32,4 +33,6 @@ class Shader{
         void LinkProgram(GLuint shaderProgram, GLuint vertexShader, GLuint fragmentShader);
         void Bind();
         void Unbind();
+
+        void SetMat4(const std::string& name, const glm::mat4& matrix);
 };

@@ -25,6 +25,14 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(glfw)
 
+FetchContent_Declare(
+    glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG 1.0.1
+)
+
+FetchContent_MakeAvailable(glm)
+
 add_executable(gfx
 
     src/main.cpp
@@ -39,6 +47,8 @@ add_executable(gfx
     src/Graphics/shader.cpp
     src/Graphics/renderer.cpp
     src/Graphics/mesh.cpp
+    src/Graphics/transform.cpp
+    src/Input/keyboardInput.cpp
 )
 
 target_include_directories(gfx
@@ -51,6 +61,7 @@ target_link_libraries(gfx
     PRIVATE
         glfw
         OpenGL::GL
+        glm::glm
 )
 
 # Runtime Assets

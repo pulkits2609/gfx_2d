@@ -5,6 +5,9 @@
 #include "Graphics/shader.hpp"
 #include "Graphics/renderer.hpp"
 #include "Graphics/mesh.hpp"
+#include "Graphics/transform.hpp"
+#include "Input/keyboardInput.hpp"
+
 
 //this will be the main application, that owns the window, renderer, game etc
 
@@ -14,6 +17,8 @@ class Application{
         Shader shader;
         Renderer renderer;
         TriangleMesh mesh;
+        Transform transform; //OPTIMUS PRIME YEAHHHHHHH
+        KeyboardInput keyboardinput;
 
     public:
         Application();

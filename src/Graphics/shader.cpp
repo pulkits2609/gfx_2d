@@ -1,4 +1,5 @@
 #include<Graphics/shader.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 Shader::Shader(const std::string& vertexFile, const std::string& fragmentFile):shaderProgram(0){
     std::string vertexData = readShader(vertexFile);
@@ -110,4 +111,16 @@ void Shader::Bind(){
 
 void Shader::Unbind(){
     glUseProgram(0); //this will unbind the currently binded program
+}
+
+void Shader::SetMat4(const std::string& name, const glm::mat4& matrix){
+
+    GLint location = glGetUniformLocation(shaderProgram, name.c_str());
+
+    glUniformMatrix4fv(
+        location,
+        1,
+        GL_FALSE,
+        glm::value_ptr(matrix)
+    );
 }
