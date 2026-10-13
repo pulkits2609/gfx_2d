@@ -11,5 +11,10 @@ class Renderer{
     public:
         Renderer();
         void Clear(float r, float g, float b, float a); //clear the current framebuffer
-        void Draw(TriangleMesh& mesh, Shader& shader, Transform& transform);
+        void Draw(
+            Mesh& mesh,
+            Shader& shader,
+            Transform& transform,
+            const glm::mat4& projection
+        );
 };

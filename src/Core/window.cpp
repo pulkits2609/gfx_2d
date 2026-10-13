@@ -1,5 +1,6 @@
 #include "Core/window.hpp"
 #include<iostream>
+#include<stdexcept>
 
 Window::Window(int width, int height, const std::string& windowName):window(nullptr){
     if(!glfwInit()){
@@ -29,7 +30,10 @@ Window::Window(int width, int height, const std::string& windowName):window(null
     glfwSetFramebufferSizeCallback(window, frameBuffer_size_callback);
 
     //setting the initial viewport
-    glViewport(0, 0, width, height);
+    int framebufferWidth;
+    int framebufferHeight;
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+    glViewport(0, 0, framebufferWidth, framebufferHeight);
 }
 
 Window::~Window(){
