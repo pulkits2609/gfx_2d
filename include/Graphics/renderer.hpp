@@ -15,6 +15,7 @@ class Renderer{
             Mesh& mesh,
             Shader& shader,
             Transform& transform,
-            const glm::mat4& projection
+            const glm::mat4& projection,
+            const glm::vec3& color = glm::vec3(1.0f, 0.0f, 0.0f)
         );
 };

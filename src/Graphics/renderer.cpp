@@ -11,11 +11,13 @@ void Renderer::Draw(
     Mesh& mesh,
     Shader& shader,
     Transform& transform,
-    const glm::mat4& projection
+    const glm::mat4& projection,
+    const glm::vec3& color
 ){
     shader.Bind();
     shader.SetMat4("u_Model", transform.GetModelMatrix());
     shader.SetMat4("u_Projection", projection);
+    shader.SetVec3("u_Color", color);
     mesh.Bind();
 
     glDrawArrays(GL_TRIANGLES, 0, mesh.GetVertexCount());

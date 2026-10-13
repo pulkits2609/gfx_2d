@@ -39,5 +39,17 @@ glm::mat4 Transform::GetModelMatrix(){
         model,
         glm::vec3(position.x, position.y, 0.0f)
     );
+
+    model = glm::rotate(
+        model,
+        rotation,
+        glm::vec3(0.0f, 0.0f, 1.0f)
+    );
+
+    model = glm::scale(
+        model,
+        glm::vec3(scale.x, scale.y, 1.0f)
+    );
+
     return model;
 }

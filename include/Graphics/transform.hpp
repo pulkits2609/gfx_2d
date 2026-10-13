@@ -10,7 +10,7 @@ struct Vector{
 class Transform{
     private:
         Vector position;
-        float rotation;
+        float rotation; //radians, positive means counterclockwise
         Vector scale;
 
     public:

@@ -35,4 +35,5 @@ class Shader{
         void Unbind();
 
         void SetMat4(const std::string& name, const glm::mat4& matrix);
+        void SetVec3(const std::string& name, const glm::vec3& value);
 };

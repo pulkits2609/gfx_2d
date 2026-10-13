@@ -49,6 +49,8 @@ add_executable(gfx
     src/Graphics/mesh.cpp
     src/Graphics/transform.cpp
     src/Input/keyboardInput.cpp
+
+    src/Game/game.cpp
 )
 
 target_include_directories(gfx

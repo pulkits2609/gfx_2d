@@ -1,0 +1,47 @@
+#pragma once
+
+#include<glm/glm.hpp>
+#include"Game/matchRules.hpp"
+
+//Player stores the actual gameplay state
+//PlayerInput describes movement, aiming, and firing intentions
+
+//plain gameplay data, no graphics resources
+struct Player{
+    glm::vec2 position{0.0f, 0.0f};
+    glm::vec2 spawnPosition{0.0f, 0.0f};
+    glm::vec2 aimDirection{0.0f, 1.0f};
+
+    int team = 0;
+    int health = MatchRules::StartingHealth;
+    int kills = 0;
+    int deaths = 0;
+
+    double nextShotTime = 0.0;
+    double respawnTime = 0.0;
+    double protectionEndTime = 0.0;
+
+    bool IsAlive() const{
+        return health > 0;
+    }
+
+    bool IsSpawnProtected(double time) const{
+        return IsAlive()
+            && time + MatchRules::TimerTolerance < protectionEndTime;
+    }
+};
+
+//the application supplies intentions; Game decides what happens
+struct PlayerInput{
+    glm::vec2 movement{0.0f, 0.0f};
+    glm::vec2 aimPosition{0.0f, 0.0f};
+    bool hasAim = false;
+    bool shoot = false;
+};
+
+//visual feedback for an already calculated hitscan shot
+struct ShotTrace{
+    glm::vec2 start{0.0f, 0.0f};
+    glm::vec2 end{0.0f, 0.0f};
+    double expiresAt = 0.0;
+};

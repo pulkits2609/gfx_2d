@@ -7,6 +7,7 @@
 #include "Graphics/mesh.hpp"
 #include "Graphics/transform.hpp"
 #include "Input/keyboardInput.hpp"
+#include "Game/game.hpp"
 #include<array>
 #include<cstddef>
 
@@ -19,11 +20,31 @@ class Application{
         Shader shader;
         Renderer renderer;
         std::array<Mesh, 4> meshes;
-        std::array<Transform, 4> transforms; //one position for each displayed shape
+        std::array<Transform, 4> transforms; //presentation transforms for the players
         KeyboardInput keyboardinput;
+        Game game;
 
-        std::size_t selectedShape = 0;
-        static constexpr float movementSpeed = 0.6f; //world units per second
+        std::size_t selectedPlayer = 0;
+        double nextTitleUpdate = 0.0;
+
+        PlayerInput ReadInput(
+            GLFWwindow* nativeWindow,
+            float viewHalfWidth,
+            float viewHalfHeight
+        );
+
+        void DrawRectangle(
+            const glm::vec2& position,
+            const glm::vec2& size,
+            const glm::vec3& color,
+            const glm::mat4& projection,
+            float rotation = 0.0f
+        );
+
+        void DrawArena(const glm::mat4& projection);
+        void DrawPlayers(const glm::mat4& projection);
+        void DrawShots(const glm::mat4& projection);
+        void UpdateWindowTitle();
 
     public:
         Application();

@@ -124,3 +124,13 @@ void Shader::SetMat4(const std::string& name, const glm::mat4& matrix){
         glm::value_ptr(matrix)
     );
 }
+
+void Shader::SetVec3(const std::string& name, const glm::vec3& value){
+    GLint location = glGetUniformLocation(shaderProgram, name.c_str());
+
+    glUniform3fv(
+        location,
+        1,
+        glm::value_ptr(value)
+    );
+}
