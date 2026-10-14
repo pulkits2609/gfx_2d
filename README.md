@@ -6,6 +6,11 @@ The goal is to understand how the different parts of a 2D game/graphics applicat
 
 ## Current Status
 
+The local arena now has four named players, 2-4 configurable teams, team scores,
+health/ammo/stamina HUD, equal circular player contact, reload and boost. Run
+`gfx --teams 2`, `--teams 3`, or `--teams 4` from the executable directory.
+See [local gameplay controls and design](docs/local_gameplay.md).
+
 The project currently has:
 
 - Cross-platform window creation using GLFW

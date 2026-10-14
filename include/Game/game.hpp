@@ -17,9 +17,14 @@ class Game{
         std::array<Player, PlayerCount> players;
         std::array<ShotTrace, PlayerCount> shots;
         double elapsedTime = 0.0;
+        int teamCount;
+        std::array<int, 4> teamScores{};
 
         void Respawn(Player& player);
         void Fire(std::size_t shooterIndex);
+        void ResolveCollisions();
+        glm::vec2 FindSpawnPosition(const Player& player) const;
+        void UpdatePlayer(Player& player, const PlayerInput& input, double deltaTime);
 
         static bool RayHitsPlayer(
             const glm::vec2& origin,
@@ -29,7 +34,10 @@ class Game{
         );
 
     public:
-        Game();
+        explicit Game(int numberOfTeams = 4);
+
+        //all intentions are applied together before collisions are resolved
+        void Update(double deltaTime, const std::array<PlayerInput, PlayerCount>& inputs);
 
         void Update(
             double deltaTime,
@@ -52,4 +60,7 @@ class Game{
         double GetTime() const{
             return elapsedTime;
         }
+
+        int GetTeamCount() const{ return teamCount; }
+        const std::array<int, 4>& GetTeamScores() const{ return teamScores; }
 };

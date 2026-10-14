@@ -1,9 +1,10 @@
 #include"Game/game.hpp"
 #include<algorithm>
 #include<cmath>
+#include<limits>
 
 // Each player starts on a different team and at a different spawn position.
-Game::Game(){
+Game::Game(int numberOfTeams):teamCount(std::clamp(numberOfTeams, 2, 4)){
     const std::array<glm::vec2, PlayerCount> spawnPositions{
         glm::vec2(-0.8f, 0.5f),
         glm::vec2(0.8f, 0.5f),
@@ -12,8 +13,12 @@ Game::Game(){
     };
 
     for(std::size_t i = 0; i < players.size(); i++){
-        players[i].team = static_cast<int>(i);
+        players[i].name = "Player " + std::to_string(i + 1);
+        players[i].team = static_cast<int>(i) % teamCount;
+        players[i].health = 0;
         players[i].spawnPosition = spawnPositions[i];
+    }
+    for(std::size_t i = 0; i < players.size(); i++){
         Respawn(players[i]);
     }
 }
@@ -21,16 +26,53 @@ Game::Game(){
 // Respawning restores health and position while retaining kills and deaths. Initial spawning and later respawning both provide one second of protection.
 // Protected players cannot shoot or receive damage during that period.
 void Game::Respawn(Player& player){
-    player.position = arena.ClampPosition(
-        player.spawnPosition,
-        MatchRules::PlayerRadius
-    );
+    player.position = FindSpawnPosition(player);
 
     player.health = MatchRules::StartingHealth;
     player.aimDirection = glm::vec2(0.0f, 1.0f);
     player.respawnTime = 0.0;
     player.protectionEndTime = elapsedTime + MatchRules::SpawnProtection;
     player.nextShotTime = player.protectionEndTime;
+    player.ammunition = MatchRules::MagazineSize;
+    player.reloading = false;
+    player.reloadEndTime = 0.0;
+    player.stamina = MatchRules::MaximumStamina;
+    player.boostExhausted = false;
+    player.boosting = false;
+    player.staminaRecoveryTime = elapsedTime;
+}
+
+glm::vec2 Game::FindSpawnPosition(const Player& player) const{
+    auto isFree = [&](const glm::vec2& position){
+        for(const Player& other : players){
+            if(&other == &player || !other.IsAlive()) continue;
+            glm::vec2 difference = position - other.position;
+            float spacing = 2.0f * MatchRules::PlayerRadius + 0.005f;
+            if(glm::dot(difference, difference) < spacing * spacing) return false;
+        }
+        return true;
+    };
+
+    glm::vec2 preferred = arena.ClampPosition(player.spawnPosition, MatchRules::PlayerRadius);
+    if(isFree(preferred)) return preferred;
+
+    //if somebody occupies the spawn, choose the nearest free point on a small grid
+    glm::vec2 best = preferred;
+    float bestDistance = std::numeric_limits<float>::max();
+    glm::vec2 half = arena.GetHalfSize();
+    float spacing = 2.0f * MatchRules::PlayerRadius + 0.01f;
+    for(float y = -half.y + MatchRules::PlayerRadius; y <= half.y - MatchRules::PlayerRadius; y += spacing){
+        for(float x = -half.x + MatchRules::PlayerRadius; x <= half.x - MatchRules::PlayerRadius; x += spacing){
+            glm::vec2 candidate(x, y);
+            glm::vec2 difference = candidate - preferred;
+            float distance = glm::dot(difference, difference);
+            if(distance < bestDistance && isFree(candidate)){
+                best = candidate;
+                bestDistance = distance;
+            }
+        }
+    }
+    return best;
 }
 
 // This updates respawns first, then applies input to the selected living player.
@@ -40,10 +82,13 @@ void Game::Update(
     std::size_t controlledPlayer,
     const PlayerInput& input
 ){
-    if(deltaTime <= 0.0){
-        return;
-    }
+    std::array<PlayerInput, PlayerCount> inputs{};
+    if(controlledPlayer < inputs.size()) inputs[controlledPlayer] = input;
+    Update(deltaTime, inputs);
+}
 
+void Game::Update(double deltaTime, const std::array<PlayerInput, PlayerCount>& inputs){
+    if(!std::isfinite(deltaTime) || deltaTime <= 0.0) return;
     elapsedTime += deltaTime;
 
     //all players' respawn timers advance, even if they are not selected
@@ -54,24 +99,62 @@ void Game::Update(
         }
     }
 
-    if(controlledPlayer >= players.size()){
-        return;
+    for(std::size_t i = 0; i < players.size(); i++){
+        if(players[i].IsAlive()) UpdatePlayer(players[i], inputs[i], deltaTime);
     }
 
-    Player& player = players[controlledPlayer];
+    ResolveCollisions();
 
-    if(!player.IsAlive()){
-        return;
+    //aim and fire after every player has moved and contacts have been solved
+    for(std::size_t i = 0; i < players.size(); i++){
+        Player& player = players[i];
+        if(!player.IsAlive()) continue;
+        if(inputs[i].hasAim){
+            glm::vec2 direction = inputs[i].aimPosition - player.position;
+            if(std::isfinite(direction.x) && std::isfinite(direction.y)
+                && glm::dot(direction, direction) > 0.0f){
+                player.aimDirection = glm::normalize(direction);
+            }
+        }
+        if(inputs[i].shoot) Fire(i);
+    }
+}
+
+void Game::UpdatePlayer(Player& player, const PlayerInput& input, double deltaTime){
+    if(player.reloading && elapsedTime + MatchRules::TimerTolerance >= player.reloadEndTime){
+        player.ammunition = MatchRules::MagazineSize;
+        player.reloading = false;
+    }
+    if(input.reload && !player.reloading && player.ammunition < MatchRules::MagazineSize){
+        player.reloading = true;
+        player.reloadEndTime = elapsedTime + MatchRules::ReloadDuration;
     }
 
+    if(!input.boost) player.boostExhausted = false;
     glm::vec2 movement = input.movement;
+    if(!std::isfinite(movement.x) || !std::isfinite(movement.y)) movement = glm::vec2(0.0f);
+    bool moving = glm::dot(movement, movement) > 0.0f;
+    player.boosting = moving && input.boost && !player.boostExhausted && player.stamina > 0.0f;
+    float speed = MatchRules::MovementSpeed;
+    if(player.boosting){
+        float used = std::min(player.stamina, static_cast<float>(deltaTime));
+        speed *= 1.0f + (MatchRules::BoostMultiplier - 1.0f)
+            * used / static_cast<float>(deltaTime);
+        player.stamina = std::max(0.0f, player.stamina - used);
+        if(player.stamina < 0.00001f){
+            player.stamina = 0.0f;
+            player.boostExhausted = true;
+        }
+        player.staminaRecoveryTime = elapsedTime + MatchRules::StaminaRecoveryDelay;
+    }
+    else if(elapsedTime >= player.staminaRecoveryTime){
+        player.stamina = std::min(MatchRules::MaximumStamina,
+            player.stamina + MatchRules::StaminaRecovery * static_cast<float>(deltaTime));
+    }
 
-    if(glm::dot(movement, movement) > 0.0f){
+    if(moving){
         movement = glm::normalize(movement);
-
-        player.position += movement
-            * MatchRules::MovementSpeed
-            * static_cast<float>(deltaTime);
+        player.position += movement * speed * static_cast<float>(deltaTime);
     }
 
     player.position = arena.ClampPosition(
@@ -79,17 +162,26 @@ void Game::Update(
         MatchRules::PlayerRadius
     );
 
-    //calculate aim after movement, using the current player position
-    if(input.hasAim){
-        glm::vec2 direction = input.aimPosition - player.position;
+}
 
-        if(glm::dot(direction, direction) > 0.0f){
-            player.aimDirection = glm::normalize(direction);
+void Game::ResolveCollisions(){
+    float diameter = 2.0f * MatchRules::PlayerRadius;
+    //equal mass: share overlap equally. Multiple passes let pushes reach a chain of players.
+    for(int pass = 0; pass < MatchRules::CollisionPasses; pass++){
+        for(std::size_t i = 0; i < players.size(); i++){
+            if(!players[i].IsAlive()) continue;
+            for(std::size_t j = i + 1; j < players.size(); j++){
+                if(!players[j].IsAlive()) continue;
+                glm::vec2 difference = players[j].position - players[i].position;
+                float distance = glm::length(difference);
+                if(distance >= diameter) continue;
+                glm::vec2 normal = distance > 0.000001f
+                    ? difference / distance : glm::vec2(1.0f, 0.0f);
+                glm::vec2 correction = normal * ((diameter - distance) * 0.5f);
+                players[i].position = arena.ClampPosition(players[i].position - correction, MatchRules::PlayerRadius);
+                players[j].position = arena.ClampPosition(players[j].position + correction, MatchRules::PlayerRadius);
+            }
         }
-    }
-
-    if(input.shoot){
-        Fire(controlledPlayer);
     }
 }
 
@@ -136,7 +228,8 @@ bool Game::RayHitsPlayer(
 void Game::Fire(std::size_t shooterIndex){
     Player& shooter = players[shooterIndex];
 
-    if(!shooter.IsAlive() || shooter.IsSpawnProtected(elapsedTime)){
+    if(!shooter.IsAlive() || shooter.IsSpawnProtected(elapsedTime)
+        || shooter.reloading || shooter.ammunition <= 0){
         return;
     }
 
@@ -146,6 +239,7 @@ void Game::Fire(std::size_t shooterIndex){
 
     //a valid shot consumes the cooldown, even if it misses
     shooter.nextShotTime = elapsedTime + MatchRules::FireCooldown;
+    shooter.ammunition--;
 
     float nearestDistance = arena.GetRayExitDistance(
         shooter.position,
@@ -180,7 +274,8 @@ void Game::Fire(std::size_t shooterIndex){
     shots[shooterIndex].start = shooter.position;
     shots[shooterIndex].end = shooter.position
         + shooter.aimDirection * nearestDistance;
-    shots[shooterIndex].expiresAt = elapsedTime
+    shots[shooterIndex].firedAt = elapsedTime;
+    shots[shooterIndex].expiresAt = elapsedTime + nearestDistance / MatchRules::TracerSpeed
         + MatchRules::ShotTraceDuration;
 
     if(hitIndex == players.size()){
@@ -199,6 +294,9 @@ void Game::Fire(std::size_t shooterIndex){
     if(!target.IsAlive()){
         target.deaths++;
         shooter.kills++;
+        teamScores[static_cast<std::size_t>(shooter.team)]++;
+        target.reloading = false;
+        target.boosting = false;
         target.respawnTime = elapsedTime + MatchRules::RespawnDelay;
     }
 }

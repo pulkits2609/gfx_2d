@@ -1,3 +1,16 @@
+# Current gameplay reminders
+
+- Input is sampled by Application and processed by Game at 120 fixed steps/second.
+- Movement is normalized. All shapes use the same radius 0.105 contact/hit circle.
+- Position correction shares contact equally; several passes handle pushing chains.
+- R reloads 30 rounds in 1.4 seconds. Shift spends up to 3 seconds of stamina.
+- Damage is hitscan. The travelling tracer is visual feedback only.
+- GameUI uses world-to-screen conversion for nameplates and screen coordinates
+  for the HUD. Score cards use Game::GetTeamCount and GetTeamScores.
+- CTest runs gameplay checks without creating an OpenGL context.
+
+The original graphics notes below describe earlier learning checkpoints.
+
 # GFX_2D — OpenGL & Architecture Cheatsheet
 
 ## 1. GLFW

@@ -8,6 +8,7 @@
 #include "Graphics/transform.hpp"
 #include "Input/keyboardInput.hpp"
 #include "Game/game.hpp"
+#include "UI/gameUI.hpp"
 #include<array>
 #include<cstddef>
 
@@ -23,9 +24,12 @@ class Application{
         std::array<Transform, 4> transforms; //presentation transforms for the players
         KeyboardInput keyboardinput;
         Game game;
+        GameUI hud;
 
         std::size_t selectedPlayer = 0;
         double nextTitleUpdate = 0.0;
+        bool reloadWasPressed = false;
+        std::array<bool, 4> pendingReload{};
 
         PlayerInput ReadInput(
             GLFWwindow* nativeWindow,
@@ -47,7 +51,7 @@ class Application{
         void UpdateWindowTitle();
 
     public:
-        Application();
+        explicit Application(int numberOfTeams = 4);
         void RunApplication();
         void GameLoop();
 };

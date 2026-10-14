@@ -1,7 +1,7 @@
 #pragma once
 
 //the arena is 3 units wide and 2 units high
-//All shapes share a radius of 0.14. At visual scale 0.6, their current geometry fits inside that radius even when rotated. This keeps their movement limits and hitboxes identical.
+//all shapes share the same hitbox, including when they are rotated
 
 namespace MatchRules{
     constexpr float MovementSpeed = 0.6f;
@@ -13,13 +13,23 @@ namespace MatchRules{
     constexpr double SpawnProtection = 1.0;
 
     //the same circular hitbox is used for every shape
-    constexpr float PlayerRadius = 0.14f;
-    constexpr float PlayerVisualScale = 0.6f;
+    constexpr float PlayerRadius = 0.14f * 0.75f;
+    constexpr float PlayerVisualScale = 0.6f * 0.75f;
+
+    constexpr int MagazineSize = 30;
+    constexpr double ReloadDuration = 1.4;
+    constexpr float MaximumStamina = 3.0f;
+    constexpr float BoostMultiplier = 1.75f;
+    constexpr float StaminaRecovery = 1.0f;
+    constexpr double StaminaRecoveryDelay = 0.75;
+    constexpr int CollisionPasses = 24;
 
     constexpr float ArenaHalfWidth = 1.5f;
     constexpr float ArenaHalfHeight = 1.0f;
     constexpr float ShotRange = 4.0f;
-    constexpr double ShotTraceDuration = 0.08;
+    constexpr float TracerSpeed = 18.0f;
+    constexpr float TracerLength = 0.12f;
+    constexpr double ShotTraceDuration = 0.04;
 
     //local simulation runs independently of rendering
     constexpr double SimulationStep = 1.0 / 120.0;

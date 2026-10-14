@@ -1,3 +1,14 @@
+# Current gameplay structure
+
+Application owns Window, graphics resources, Game and GameUI. Game owns plain
+Player data and Arena, and accepts intentions before solving equal-mass circular
+contacts and combat. GameUI reads Game to draw names, health, ammunition,
+stamina and team scores through Dear ImGui. Rendering does not decide damage.
+
+The reusable gfx_game library and gameplay tests require GLM, not a window or
+OpenGL. See [local gameplay](local_gameplay.md) for current controls and rules.
+The original graphics notes below describe earlier learning checkpoints.
+
 # GFX_2D — Project Structure & Architecture
 
 ## 1. Current Project Structure

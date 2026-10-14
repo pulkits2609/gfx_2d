@@ -4,7 +4,7 @@
 #include<cmath>
 #include<string>
 
-Application::Application():window(
+Application::Application(int numberOfTeams):window(
     1200,
     1200,
     "GFX_2D - 1-4 select | WASD move | Mouse aim | LMB shoot"
@@ -22,7 +22,8 @@ meshes{
 },
 transforms(),
 keyboardinput(),
-game(){
+game(numberOfTeams),
+hud(window.GetNativeWindow()){
 
 }
     
@@ -63,8 +64,8 @@ void Application::GameLoop(){
         glm::vec2 arenaHalfSize = game.GetArena().GetHalfSize();
 
         //padding keeps walls and health bars visible
-        float viewHalfWidth = arenaHalfSize.x + 0.1f;
-        float viewHalfHeight = arenaHalfSize.y + 0.1f;
+        float viewHalfWidth = arenaHalfSize.x + 0.16f;
+        float viewHalfHeight = arenaHalfSize.y + 0.5f;
 
         float aspectRatio = static_cast<float>(framebufferWidth)
             / static_cast<float>(framebufferHeight);
@@ -91,6 +92,7 @@ void Application::GameLoop(){
             viewHalfHeight
         );
 
+        input.reload = pendingReload[selectedPlayer];
         accumulator += deltaTime;
 
         //process elapsed time in fixed simulation steps
@@ -101,6 +103,8 @@ void Application::GameLoop(){
                 input
             );
 
+            pendingReload[selectedPlayer] = false;
+            input.reload = false;
             accumulator -= MatchRules::SimulationStep;
         }
 
@@ -108,6 +112,7 @@ void Application::GameLoop(){
         DrawArena(projection);
         DrawPlayers(projection);
         DrawShots(projection);
+        hud.Draw(game, selectedPlayer, viewHalfWidth, viewHalfHeight);
 
         //avoid rebuilding the native window title every frame
         if(currentTime >= nextTitleUpdate){
@@ -128,6 +133,7 @@ PlayerInput Application::ReadInput(
 
     //do not move or fire while another window has focus
     if(glfwGetWindowAttrib(nativeWindow, GLFW_FOCUSED) != GLFW_TRUE){
+        reloadWasPressed = false;
         return input;
     }
 
@@ -148,6 +154,12 @@ PlayerInput Application::ReadInput(
         static_cast<float>(dPressed) - static_cast<float>(aPressed),
         static_cast<float>(wPressed) - static_cast<float>(sPressed)
     );
+
+    bool reloadPressed = keyboardinput.isKeyPressed(nativeWindow, GLFW_KEY_R);
+    if(reloadPressed && !reloadWasPressed) pendingReload[selectedPlayer] = true;
+    reloadWasPressed = reloadPressed;
+    input.boost = keyboardinput.isKeyPressed(nativeWindow, GLFW_KEY_LEFT_SHIFT)
+        || keyboardinput.isKeyPressed(nativeWindow, GLFW_KEY_RIGHT_SHIFT);
 
     int windowWidth;
     int windowHeight;
@@ -255,134 +267,61 @@ void Application::DrawArena(const glm::mat4& projection){
 }
 
 void Application::DrawPlayers(const glm::mat4& projection){
-    static const std::array<glm::vec3, Game::PlayerCount> teamColors{
-        glm::vec3(1.0f, 0.25f, 0.25f),
-        glm::vec3(0.25f, 0.6f, 1.0f),
-        glm::vec3(0.3f, 0.9f, 0.45f),
-        glm::vec3(1.0f, 0.8f, 0.2f)
-    };
-
     constexpr float halfPi = 1.57079632679489661923f;
     const auto& players = game.GetPlayers();
 
     for(std::size_t i = 0; i < players.size(); i++){
         const Player& player = players[i];
+        if(!player.IsAlive()) continue;
+        glm::vec3 teamColor = GameUI::TeamColor(player.team);
+        float aimAngle = std::atan2(player.aimDirection.y, player.aimDirection.x);
 
-        if(!player.IsAlive()){
-            continue;
-        }
-
-        const glm::vec3& teamColor = teamColors[
-            static_cast<std::size_t>(player.team)
-        ];
-
-        float aimAngle = std::atan2(
-            player.aimDirection.y,
-            player.aimDirection.x
-        );
-
-        //a circle behind the selected player shows its common hitbox
-        if(i == selectedPlayer){
-            Transform selection;
-            selection.SetPosition({player.position.x, player.position.y});
-
-            float selectionScale = MatchRules::PlayerRadius
-                / meshes[2].GetHalfExtents().x;
-
-            selection.SetScale({selectionScale, selectionScale});
-
-            renderer.Draw(
-                meshes[2],
-                shader,
-                selection,
-                projection,
-                teamColor * 0.35f
-            );
-        }
-
+        //reuse the team's mesh; collision always uses the shared circular hitbox
         transforms[i].SetPosition({player.position.x, player.position.y});
-
-        //the original triangle points along +Y, rather than +X
         transforms[i].SetRotation(aimAngle - halfPi);
-
-        transforms[i].SetScale({
-            MatchRules::PlayerVisualScale,
-            MatchRules::PlayerVisualScale
-        });
-
+        transforms[i].SetScale({MatchRules::PlayerVisualScale, MatchRules::PlayerVisualScale});
         glm::vec3 bodyColor = player.IsSpawnProtected(game.GetTime())
-            ? glm::vec3(0.95f, 0.95f, 0.95f)
-            : teamColor;
+            ? glm::vec3(0.85f, 0.87f, 0.84f) : teamColor;
+        renderer.Draw(meshes[static_cast<std::size_t>(player.team)], shader, transforms[i], projection, bodyColor);
 
-        renderer.Draw(meshes[i], shader, transforms[i], projection, bodyColor);
-
-        //small direction marker also makes aiming visible on a circle
-        DrawRectangle(
-            player.position + player.aimDirection * 0.084f,
-            glm::vec2(0.09f, 0.012f),
-            glm::vec3(1.0f, 1.0f, 1.0f),
-            projection,
-            aimAngle
-        );
-
-        constexpr float barWidth = 0.24f;
-        constexpr float barHeight = 0.025f;
-
-        glm::vec2 barPosition(
-            player.position.x,
-            player.position.y + MatchRules::PlayerRadius + 0.04f
-        );
-
-        DrawRectangle(
-            barPosition,
-            glm::vec2(barWidth, barHeight),
-            glm::vec3(0.2f, 0.2f, 0.2f),
-            projection
-        );
-
-        float healthRatio = static_cast<float>(player.health)
-            / static_cast<float>(MatchRules::StartingHealth);
-
-        float filledWidth = barWidth * healthRatio;
-
-        //adjust the centre so the bar shrinks from right to left
-        glm::vec2 filledPosition(
-            barPosition.x - (barWidth - filledWidth) * 0.5f,
-            barPosition.y
-        );
-
-        DrawRectangle(
-            filledPosition,
-            glm::vec2(filledWidth, barHeight),
-            glm::vec3(0.25f, 0.9f, 0.35f),
-            projection
-        );
+        if(i != selectedPlayer) continue;
+        glm::vec2 forward = player.aimDirection;
+        glm::vec2 side(-forward.y, forward.x);
+        auto segment = [&](glm::vec2 from, glm::vec2 to, float thickness, glm::vec3 color){
+            glm::vec2 difference = to - from;
+            DrawRectangle((from + to) * 0.5f, glm::vec2(glm::length(difference), thickness),
+                color, projection, std::atan2(difference.y, difference.x));
+        };
+        //split shaft and an open, notched chevron keep the pointer light
+        glm::vec2 base = player.position + forward * (MatchRules::PlayerRadius + 0.025f);
+        glm::vec2 tip = base + forward * 0.17f;
+        segment(base, base + forward * 0.055f, 0.005f, teamColor * 0.8f);
+        segment(base + forward * 0.075f, tip - forward * 0.035f, 0.005f, teamColor);
+        segment(tip - forward * 0.045f + side * 0.028f, tip, 0.007f, teamColor);
+        segment(tip - forward * 0.045f - side * 0.028f, tip, 0.007f, teamColor);
+        segment(base - side * 0.014f, base + side * 0.014f, 0.004f, teamColor * 0.6f);
     }
 }
 
 void Application::DrawShots(const glm::mat4& projection){
     for(const ShotTrace& shot : game.GetShots()){
-        if(shot.expiresAt <= game.GetTime()){
-            continue;
-        }
-
+        if(shot.expiresAt <= game.GetTime()) continue;
         glm::vec2 difference = shot.end - shot.start;
-        float length = glm::length(difference);
-
-        if(length <= 0.0f){
-            continue;
-        }
-
-        glm::vec2 centre = (shot.start + shot.end) * 0.5f;
-        float angle = std::atan2(difference.y, difference.x);
-
-        DrawRectangle(
-            centre,
-            glm::vec2(length, 0.008f),
-            glm::vec3(1.0f, 0.85f, 0.3f),
-            projection,
-            angle
-        );
+        float distance = glm::length(difference);
+        if(distance <= 0.00001f) continue;
+        glm::vec2 direction = difference / distance;
+        float age = static_cast<float>(game.GetTime() - shot.firedAt);
+        float travelTime = distance / MatchRules::TracerSpeed;
+        float head = std::min(distance, age * MatchRules::TracerSpeed);
+        float tail = std::max(0.0f, head - MatchRules::TracerLength
+            + std::max(0.0f, age - travelTime) * MatchRules::TracerSpeed);
+        if(tail >= head) continue;
+        glm::vec2 centre = shot.start + direction * ((head + tail) * 0.5f);
+        float angle = std::atan2(direction.y, direction.x);
+        DrawRectangle(centre, glm::vec2(head - tail, 0.010f),
+            glm::vec3(0.74f, 0.49f, 0.19f), projection, angle);
+        DrawRectangle(centre, glm::vec2(head - tail, 0.004f),
+            glm::vec3(1.0f, 0.91f, 0.66f), projection, angle);
     }
 }
 
