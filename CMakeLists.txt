@@ -160,6 +160,9 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/tcp_sessions.py
             $<TARGET_FILE:gfx_server> $<TARGET_FILE:gfx_control_client>)
         set_tests_properties(tcp_sessions PROPERTIES TIMEOUT 60)
+        add_test(NAME lobbies COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/lobbies.py $<TARGET_FILE:gfx_server>)
+        set_tests_properties(lobbies PROPERTIES TIMEOUT 60)
     endif()
 endif()
 

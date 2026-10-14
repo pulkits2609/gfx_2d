@@ -3,6 +3,7 @@
 #include<boost/asio.hpp>
 #include<deque>
 #include"Network/protocol.hpp"
+#include"Network/lobby.hpp"
 
 //Poll runs ready network callbacks without waiting, so drawing never blocks.
 class GameClient{
@@ -28,6 +29,8 @@ class GameClient{
         std::string sessionToken;
         std::string status = "LOCAL PRACTICE";
         Protocol::Json peers = Protocol::Json::array();
+        Protocol::Json lobby;
+        std::string notice;
 
         void SetDeadline(int seconds);
         void ReadHeader();
@@ -48,6 +51,13 @@ class GameClient{
         void Poll();
         void Disconnect();
         void SendPing();
+        void CreateLobby(int teams, int minutes);
+        void JoinLobby(const std::string& code);
+        void ChooseTeam(int team);
+        void StartMatch();
+        void LeaveLobby();
+        const Protocol::Json& GetLobby() const{ return lobby; }
+        const std::string& GetNotice() const{ return notice; }
         State GetState() const{ return state; }
         const std::string& GetStatus() const{ return status; }
         std::uint64_t GetPlayerId() const{ return playerId; }

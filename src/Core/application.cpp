@@ -3,6 +3,7 @@
 #include<glm/gtc/matrix_transform.hpp>
 #include<cmath>
 #include<string>
+#include<cstdio>
 
 Application::Application(int numberOfTeams, const std::string& serverHost,
     unsigned short controlPort, const std::string& name):window(
@@ -25,10 +26,10 @@ transforms(),
 keyboardinput(),
 game(numberOfTeams),
 hud(window.GetNativeWindow()){
-    if(!serverHost.empty()){
-        network.Connect(serverHost, controlPort, name);
-        game.SetPlayerName(0, name);
-    }
+    menu.teams = numberOfTeams;
+    menu.port = controlPort;
+    std::snprintf(menu.name, sizeof(menu.name), "%s", name.c_str());
+    if(!serverHost.empty()) std::snprintf(menu.address, sizeof(menu.address), "%s", serverHost.c_str());
 }
     
 
@@ -42,7 +43,15 @@ void Application::GameLoop(){
 
     while(!window.ShouldClose()){
         window.PollEvents();
-        network.Poll();
+        if(network) network->Poll();
+        if(pendingAction != MenuAction::None && network){
+            if(network->GetState() == GameClient::State::Connected){
+                if(pendingAction == MenuAction::Create) network->CreateLobby(menu.teams, menu.minutes);
+                else network->JoinLobby(menu.code);
+                pendingAction = MenuAction::None;
+            }
+            else if(network->GetState() == GameClient::State::Failed) pendingAction = MenuAction::None;
+        }
 
         double currentTime = glfwGetTime();
         double deltaTime = currentTime - previousTime;
@@ -63,6 +72,17 @@ void Application::GameLoop(){
             glfwWaitEventsTimeout(0.05);
             previousTime = glfwGetTime();
             accumulator = 0.0;
+            continue;
+        }
+
+        bool escape = glfwGetKey(nativeWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS;
+        if(escape && !escapeWasPressed && offlinePractice) offlinePractice = false;
+        escapeWasPressed = escape;
+        if(!offlinePractice){
+            accumulator = 0;
+            renderer.Clear(0.025f, 0.03f, 0.04f, 1.0f);
+            HandleMenu(hud.DrawMenu(menu, network.get(), pendingAction != MenuAction::None));
+            window.SwapBuffers();
             continue;
         }
 
@@ -99,7 +119,7 @@ void Application::GameLoop(){
         DrawPlayers(projection);
         DrawShots(projection);
         glViewport(0, 0, framebufferWidth, framebufferHeight);
-        hud.Draw(game, selectedPlayer, view, network.GetStatus());
+        hud.Draw(game, selectedPlayer, view, "OFFLINE PRACTICE / ESC MENU");
 
         //avoid rebuilding the native window title every frame
         if(currentTime >= nextTitleUpdate){
@@ -315,4 +335,33 @@ void Application::UpdateWindowTitle(){
     }
 
     glfwSetWindowTitle(window.GetNativeWindow(), title.c_str());
+}
+
+void Application::HandleMenu(MenuAction action){
+    if(action == MenuAction::Offline){
+        network.reset();
+        pendingAction = MenuAction::None;
+        game = Game(menu.teams);
+        selectedPlayer = 0;
+        pendingReload = {};
+        offlinePractice = true;
+    }
+    else if(action == MenuAction::Create || action == MenuAction::Join){
+        if(network && network->GetState() == GameClient::State::Connected){
+            if(action == MenuAction::Create) network->CreateLobby(menu.teams, menu.minutes);
+            else network->JoinLobby(menu.code);
+        }
+        else{
+            if(menu.port < 1 || menu.port > 65535 || !Protocol::ValidName(menu.name) || !menu.address[0]) return;
+            if(action == MenuAction::Join && !LobbyRules::ValidCode(LobbyRules::NormalizeCode(menu.code))) return;
+            network = std::make_unique<GameClient>();
+            network->Connect(menu.address, static_cast<unsigned short>(menu.port), menu.name);
+            pendingAction = action;
+        }
+    }
+    else if(network){
+        if(action == MenuAction::ChooseTeam) network->ChooseTeam(menu.chosenTeam);
+        else if(action == MenuAction::Start) network->StartMatch();
+        else if(action == MenuAction::Leave) network->LeaveLobby();
+    }
 }

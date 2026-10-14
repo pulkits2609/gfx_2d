@@ -1,4 +1,5 @@
 #include"Network/gameClient.hpp"
+#include"Network/lobby.hpp"
 #include<algorithm>
 #include<chrono>
 #include<stdexcept>
@@ -127,10 +128,42 @@ void GameClient::HandleMessage(){
         })){ Fail("Invalid session token"); return; }
         playerId = message["playerId"].get<std::uint64_t>();
         state = State::Connected;
-        status = "TCP #" + std::to_string(playerId) + " CONNECTED / LOCAL PRACTICE";
+        status = "TCP #" + std::to_string(playerId) + " CONNECTED";
         SendPing();
         Send(Protocol::Message("players"));
         StartHeartbeat();
+    }
+    else if(type == "notice"){
+        notice = message.value("message", std::string("Request rejected"));
+    }
+    else if(type == "lobby"){
+        if(!message.contains("code") || !message["code"].is_string()
+            || !LobbyRules::ValidCode(message["code"].get<std::string>())
+            || !message.contains("teams") || !message["teams"].is_number_integer()
+            || message["teams"] < 2 || message["teams"] > 4
+            || !message.contains("minutes") || !message["minutes"].is_number_integer()
+            || message["minutes"] < 1 || message["minutes"] > 30
+            || !message.contains("hostId") || !message["hostId"].is_number_unsigned()
+            || !message.contains("playing") || !message["playing"].is_boolean()
+            || !message.contains("members") || !message["members"].is_array()
+            || message["members"].empty() || message["members"].size() > 9){
+            Fail("Invalid lobby state"); return;
+        }
+        for(const auto& member : message["members"]){
+            if(!member.is_object() || !member.contains("playerId") || !member["playerId"].is_number_unsigned()
+                || !member.contains("name") || !member["name"].is_string()
+                || !Protocol::ValidName(member["name"].get<std::string>())
+                || !member.contains("team") || !member["team"].is_number_integer()
+                || member["team"] < 0 || member["team"] >= message["teams"]){
+                Fail("Invalid lobby member"); return;
+            }
+        }
+        lobby = std::move(message);
+        notice.clear();
+    }
+    else if(type == "lobby_left" || type == "lobby_closed"){
+        lobby = nullptr;
+        notice = message.value("message", std::string());
     }
     else if(type == "pong"){
         receivedPong = true;
@@ -166,3 +199,27 @@ void GameClient::StartHeartbeat(){
         StartHeartbeat();
     });
 }
+
+void GameClient::CreateLobby(int teams, int minutes){
+    notice.clear();
+    auto message = Protocol::Message("create_lobby");
+    message["teams"] = teams;
+    message["minutes"] = minutes;
+    Send(message);
+}
+
+void GameClient::JoinLobby(const std::string& code){
+    notice.clear();
+    auto message = Protocol::Message("join_lobby");
+    message["code"] = LobbyRules::NormalizeCode(code);
+    Send(message);
+}
+
+void GameClient::ChooseTeam(int team){
+    auto message = Protocol::Message("choose_team");
+    message["team"] = team;
+    Send(message);
+}
+
+void GameClient::StartMatch(){ Send(Protocol::Message("start_match")); }
+void GameClient::LeaveLobby(){ Send(Protocol::Message("leave_lobby")); }

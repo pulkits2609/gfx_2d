@@ -12,6 +12,7 @@
 #include "Network/gameClient.hpp"
 #include<array>
 #include<cstddef>
+#include<memory>
 
 
 //this will be the main application, that owns the window, renderer, game etc
@@ -26,7 +27,13 @@ class Application{
         KeyboardInput keyboardinput;
         Game game;
         GameUI hud;
-        GameClient network;
+        std::unique_ptr<GameClient> network;
+        MenuSettings menu;
+        MenuAction pendingAction = MenuAction::None;
+        bool offlinePractice = false;
+        bool escapeWasPressed = false;
+
+        void HandleMenu(MenuAction action);
 
         std::size_t selectedPlayer = 0;
         double nextTitleUpdate = 0.0;

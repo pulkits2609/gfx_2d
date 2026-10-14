@@ -166,3 +166,114 @@ void GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
+
+MenuAction GameUI::DrawMenu(MenuSettings& settings, const GameClient* network, bool busy){
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    ImVec2 screen = ImGui::GetIO().DisplaySize;
+    ImGui::StyleColorsDark();
+    ImGui::GetStyle().WindowRounding = 3;
+    ImGui::GetStyle().FrameRounding = 2;
+    ImGui::GetStyle().WindowPadding = ImVec2(24, 20);
+    ImGui::GetStyle().ItemSpacing = ImVec2(10, 12);
+    ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(680.0f, screen.x - 40), std::min(590.0f, screen.y - 40)));
+    ImGui::Begin("GFX_2D", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse
+        | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
+    ImGui::PushFont(numberFont);
+    ImGui::TextUnformatted("GFX_2D");
+    ImGui::PopFont();
+    ImGui::TextDisabled("One arena. Pick a shape. Find your team.");
+    ImGui::Separator();
+    MenuAction action = MenuAction::None;
+    bool connected = network && network->GetState() == GameClient::State::Connected;
+    bool inLobby = connected && network->GetLobby().is_object();
+    if(inLobby){
+        const auto& lobby = network->GetLobby();
+        ImGui::Text("LOBBY  %s", lobby["code"].get_ref<const std::string&>().c_str());
+        ImGui::SameLine();
+        if(ImGui::SmallButton("Copy code")) ImGui::SetClipboardText(lobby["code"].get_ref<const std::string&>().c_str());
+        ImGui::Text("%d teams / %d minutes / %d players per team", lobby["teams"].get<int>(),
+            lobby["minutes"].get<int>(), LobbyRules::PlayersPerTeam(lobby["teams"].get<int>()));
+        static const char* shapes[]{"Triangle", "Square", "Circle", "Hexagon"};
+        int ownTeam = 0;
+        int hostTeam = 0;
+        for(const auto& member : lobby["members"]){
+            if(member["playerId"] == network->GetPlayerId()) ownTeam = member["team"].get<int>();
+            if(member["playerId"] == lobby["hostId"]) hostTeam = member["team"].get<int>();
+        }
+        for(int team = 0; team < lobby["teams"].get<int>(); team++){
+            glm::vec3 color = TeamColor(team);
+            int count = 0;
+            for(const auto& member : lobby["members"]) if(member["team"] == team) count++;
+            ImGui::PushID(team);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(color.r * 0.35f, color.g * 0.35f, color.b * 0.35f, 1));
+            bool full = count >= LobbyRules::PlayersPerTeam(lobby["teams"].get<int>());
+            ImGui::BeginDisabled(lobby["playing"].get<bool>() || (full && ownTeam != team));
+            std::string label = std::string(shapes[team]) + "  " + std::to_string(count) + "/"
+                + std::to_string(LobbyRules::PlayersPerTeam(lobby["teams"].get<int>()))
+                + (ownTeam == team ? "  [YOU]" : "");
+            if(ImGui::Button(label.c_str(), ImVec2(235, 0))){ settings.chosenTeam = team; action = MenuAction::ChooseTeam; }
+            ImGui::EndDisabled();
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            std::string names;
+            for(const auto& member : lobby["members"]){
+                if(member["team"] != team) continue;
+                if(!names.empty()) names += ", ";
+                names += member["name"].get<std::string>();
+                if(member["playerId"] == lobby["hostId"]) names += " (host)";
+            }
+            ImGui::TextWrapped("%s", names.empty() ? "Empty" : names.c_str());
+            ImGui::PopID();
+        }
+        ImGui::Separator();
+        bool host = lobby["hostId"] == network->GetPlayerId();
+        bool opponent = false;
+        for(const auto& member : lobby["members"]) if(member["team"] != hostTeam) opponent = true;
+        if(host){
+            ImGui::BeginDisabled(!opponent || lobby["playing"].get<bool>());
+            if(ImGui::Button("Start match", ImVec2(235, 36))) action = MenuAction::Start;
+            ImGui::EndDisabled();
+            if(!opponent) ImGui::TextDisabled("An opposing team needs at least one player.");
+        }
+        else ImGui::TextDisabled("Waiting for the host to start.");
+        if(ImGui::Button("Leave lobby")) action = MenuAction::Leave;
+    }
+    else if(settings.page == 0){
+        if(ImGui::Button("Create Lobby", ImVec2(-1, 54))) settings.page = 1;
+        if(ImGui::Button("Join Lobby", ImVec2(-1, 54))) settings.page = 2;
+        if(ImGui::Button("Play Offline", ImVec2(-1, 54))) action = MenuAction::Offline;
+        ImGui::TextDisabled("Offline practice: keys 1-4 switch between four local players.");
+    }
+    else{
+        ImGui::TextUnformatted(settings.page == 1 ? "CREATE LOBBY" : "JOIN LOBBY");
+        ImGui::BeginDisabled(busy || connected);
+        ImGui::InputText("Name", settings.name, sizeof(settings.name));
+        ImGui::InputText("Server address", settings.address, sizeof(settings.address));
+        ImGui::InputInt("TCP port", &settings.port);
+        ImGui::EndDisabled();
+        if(settings.page == 1){
+            ImGui::SliderInt("Teams", &settings.teams, 2, 4, "%d", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::SliderInt("Minutes", &settings.minutes, 1, 30, "%d", ImGuiSliderFlags_AlwaysClamp);
+        }
+        else ImGui::InputText("Lobby code", settings.code, sizeof(settings.code), ImGuiInputTextFlags_CharsUppercase);
+        ImGui::BeginDisabled(busy);
+        if(ImGui::Button(settings.page == 1 ? "Create" : "Join", ImVec2(235, 38)))
+            action = settings.page == 1 ? MenuAction::Create : MenuAction::Join;
+        ImGui::EndDisabled();
+        if(ImGui::Button("Back")){ settings.page = 0; }
+        ImGui::TextWrapped("Run gfx_server first. For another computer, enter that server's LAN address. "
+            "A lobby code belongs to the server you connect to.");
+    }
+    if(network){
+        ImGui::Separator();
+        ImGui::TextWrapped("%s", network->GetStatus().c_str());
+        if(!network->GetNotice().empty()) ImGui::TextWrapped("%s", network->GetNotice().c_str());
+    }
+    ImGui::End();
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    return action;
+}
