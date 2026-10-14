@@ -20,8 +20,9 @@ def receive(sock):
     return json.loads(exact(struct.unpack('!I', exact(4))[0]))
 
 
-server = subprocess.Popen([sys.argv[1], '--port', '0'], stdout=subprocess.PIPE, text=True)
+server = subprocess.Popen([sys.argv[1], '--port', '0', '--udp-port', '0'], stdout=subprocess.PIPE, text=True)
 clients = []
+udp_clients = []
 try:
     port = int(re.search(r':(\d+)$', server.stdout.readline().strip())[1])
 
@@ -39,6 +40,13 @@ try:
         clients.append(sock)
         welcome = request(sock, 'hello', name='Player ' + str(len(clients)))
         assert welcome['type'] == 'welcome'
+        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp.settimeout(3)
+        udp.connect(('127.0.0.1', welcome['gameplayPort']))
+        registration = b'G2' + bytes([1, 1]) + struct.pack('!Q', welcome['playerId']) + bytes.fromhex(welcome['sessionToken'])
+        udp.send(registration)
+        assert udp.recv(1200) == registration[:3] + bytes([2]) + registration[4:]
+        udp_clients.append(udp)
         return sock, welcome['playerId']
 
     for teams, capacity in ((2, 4), (3, 3), (4, 2)):
@@ -54,6 +62,11 @@ try:
             joined = request(player, 'join_lobby', code=code.lower())
             assert joined['type'] == 'lobby'
             members.append(player)
+            if len(members) == 2:
+                changed = request(player, 'choose_team', team=0)
+                assert changed['type'] == 'lobby'
+                assert request(host, 'start_match')['type'] == 'notice', 'same team is not an opponent'
+                assert request(player, 'choose_team', team=1)['type'] == 'lobby'
         outsider, _ = connect()
         assert request(outsider, 'join_lobby', code='!!!!!!')['type'] == 'notice'
         assert request(outsider, 'join_lobby', code=code)['type'] == 'notice', 'full lobby'
@@ -72,5 +85,7 @@ try:
 finally:
     for sock in clients:
         sock.close()
+    for udp in udp_clients:
+        udp.close()
     server.terminate()
     server.wait(timeout=5)

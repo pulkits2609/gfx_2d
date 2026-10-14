@@ -33,7 +33,7 @@ def message(kind, **values):
     return dict(version=1, type=kind, **values)
 
 
-server = subprocess.Popen([sys.argv[1], '--port', '0'], stdout=subprocess.PIPE,
+server = subprocess.Popen([sys.argv[1], '--port', '0', '--udp-port', '0'], stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True)
 connections = []
 try:

@@ -11,6 +11,8 @@
 
 //plain gameplay data, no graphics resources
 struct Player{
+    bool active = false;
+    std::uint64_t id = 0;
     std::string name;
     glm::vec2 position{0.0f, 0.0f};
     glm::vec2 spawnPosition{0.0f, 0.0f};
@@ -33,7 +35,7 @@ struct Player{
     double protectionEndTime = 0.0;
 
     bool IsAlive() const{
-        return health > 0;
+        return active && health > 0;
     }
 
     bool IsSpawnProtected(double time) const{

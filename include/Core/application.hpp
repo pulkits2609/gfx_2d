@@ -23,7 +23,7 @@ class Application{
         Shader shader;
         Renderer renderer;
         std::array<Mesh, 4> meshes;
-        std::array<Transform, 4> transforms; //presentation transforms for the players
+        std::array<Transform, Game::PlayerCount> transforms; //presentation transforms for the players
         KeyboardInput keyboardinput;
         Game game;
         GameUI hud;
@@ -38,7 +38,7 @@ class Application{
         std::size_t selectedPlayer = 0;
         double nextTitleUpdate = 0.0;
         bool reloadWasPressed = false;
-        std::array<bool, 4> pendingReload{};
+        std::array<bool, Game::PlayerCount> pendingReload{};
 
         PlayerInput ReadInput(
             GLFWwindow* nativeWindow,

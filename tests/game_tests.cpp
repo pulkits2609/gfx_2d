@@ -108,6 +108,28 @@ int main(){
         Step(dodge, 60, inputs);
         Check(dodge.GetPlayers()[1].health == 100, "a target can dodge a travelling bullet");
 
+        //At 30 Hz a bullet travels 0.2 units per tick. Sweeping its whole
+        //segment must still hit a small circle between its two endpoints.
+        Game serverCombat(2, false);
+        serverCombat.AddPlayer(101, "One", 0);
+        serverCombat.AddPlayer(202, "Two", 1);
+        auto serverState = serverCombat.GetState();
+        serverState.players[0].position = {-0.25f, 0};
+        serverState.players[1].position = {0.25f, 0};
+        for(auto& player : serverState.players){ player.protectionEndTime = 0; player.nextShotTime = 0; }
+        serverCombat.ApplyState(serverState);
+        inputs = {};
+        inputs[0].hasAim = true;
+        inputs[0].aimPosition = {1, 0};
+        inputs[0].shoot = true;
+        serverCombat.Update(MatchRules::ServerStep, inputs);
+        Check(serverCombat.GetPlayers()[1].health == 100, "30 Hz shot has travel time");
+        inputs = {};
+        serverCombat.Update(MatchRules::ServerStep, inputs);
+        Check(serverCombat.GetPlayers()[1].health == 100, "30 Hz bullet has not arrived yet");
+        serverCombat.Update(MatchRules::ServerStep, inputs);
+        Check(serverCombat.GetPlayers()[1].health == 75, "swept bullet cannot tunnel through a small hitbox");
+
         Game combat;
         Step(combat, 121);
         inputs = {};
@@ -126,6 +148,7 @@ int main(){
         Check(combat.GetPlayers()[1].IsAlive(), "respawn completes");
         for(std::size_t i = 0; i < Game::PlayerCount; i++){
             for(std::size_t j = i + 1; j < Game::PlayerCount; j++){
+                if(!combat.GetPlayers()[i].active || !combat.GetPlayers()[j].active) continue;
                 Check(glm::length(combat.GetPlayers()[i].position - combat.GetPlayers()[j].position)
                     >= 2 * MatchRules::PlayerRadius - 0.0001f, "respawn does not overlap another player");
             }

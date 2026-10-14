@@ -1,6 +1,7 @@
 #include "Core/window.hpp"
 #include<iostream>
 #include<stdexcept>
+#include<algorithm>
 
 Window::Window(int width, int height, const std::string& windowName):window(nullptr){
     if(!glfwInit()){
@@ -9,6 +10,12 @@ Window::Window(int width, int height, const std::string& windowName):window(null
     }
     else{
         std::cout<<"GLFW Initialized Successfully\n";
+    }
+    if(GLFWmonitor* monitor = glfwGetPrimaryMonitor()){
+        int x, y, workWidth, workHeight;
+        glfwGetMonitorWorkarea(monitor, &x, &y, &workWidth, &workHeight);
+        width = std::max(960, std::min(width, workWidth - 40));
+        height = std::max(640, std::min(height, workHeight - 80));
     }
     window = glfwCreateWindow(width, height, windowName.c_str(), nullptr, nullptr);
     if(!window){

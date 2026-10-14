@@ -4,7 +4,7 @@
 #include"UI/viewLayout.hpp"
 #include"Network/gameClient.hpp"
 
-enum class MenuAction{ None, Offline, Create, Join, ChooseTeam, Start, Leave };
+enum class MenuAction{ None, Offline, Create, Join, ChooseTeam, Start, Leave, Return, Disconnect };
 
 struct MenuSettings{
     char address[128] = "127.0.0.1";
@@ -15,6 +15,7 @@ struct MenuSettings{
     int minutes = LobbyRules::DefaultMinutes;
     int chosenTeam = 0;
     int page = 0;
+    std::string error;
 };
 #include<glm/glm.hpp>
 
@@ -35,6 +36,6 @@ class GameUI{
 
         static glm::vec3 TeamColor(int team);
         MenuAction DrawMenu(MenuSettings& settings, const GameClient* network, bool busy);
-        void Draw(const Game& game, std::size_t selectedPlayer,
-            const ViewLayout& view, const std::string& connectionStatus);
+        MenuAction Draw(const Game& game, std::size_t selectedPlayer,
+            const ViewLayout& view, const std::string& connectionStatus, const GameClient* network = nullptr);
 };

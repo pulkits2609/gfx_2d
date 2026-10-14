@@ -4,6 +4,7 @@
 #include<deque>
 #include"Network/protocol.hpp"
 #include"Network/lobby.hpp"
+#include"Network/gameplayPackets.hpp"
 
 //Poll runs ready network callbacks without waiting, so drawing never blocks.
 class GameClient{
@@ -16,6 +17,23 @@ class GameClient{
         boost::asio::ip::tcp::socket socket{context};
         boost::asio::steady_timer deadline{context};
         boost::asio::steady_timer heartbeat{context};
+        boost::asio::ip::udp::socket gameplaySocket{context};
+        boost::asio::steady_timer registrationTimer{context};
+        std::array<std::uint8_t, GameplayPackets::MaximumSize + 1> datagram{};
+        bool udpReady = false;
+        unsigned registrationAttempts = 0;
+        bool hasSnapshot = false;
+        GameplayPackets::Snapshot latest;
+        std::deque<GameplayPackets::Snapshot> snapshots;
+        std::deque<GameplayPackets::InputCommand> pendingInputs;
+        std::uint32_t sequence = 0, reloadCounter = 0;
+        bool reloadPending = false;
+        double inputAccumulator = 0, predictionTime = 0, lastSnapshotAt = 0, waitingSince = 0;
+        Player predicted;
+        PlayerInput previewInput;
+        glm::vec2 correction{0};
+        Game renderedGame{2, false};
+        std::size_t ownSlot = 0;
         Protocol::Header header{};
         std::string body;
         std::deque<std::vector<std::uint8_t>> outgoing;
@@ -40,6 +58,13 @@ class GameClient{
         void WriteNext();
         void StartHeartbeat();
         void Fail(const std::string& reason);
+        void StartGameplay(unsigned short port);
+        void RegisterGameplay();
+        void ReceiveGameplay();
+        void AcceptSnapshot(GameplayPackets::Snapshot snapshot);
+        void ResetGameplay();
+        void SendDatagram(const std::vector<std::uint8_t>& bytes);
+        void RenderGameplay(double deltaTime, const PlayerInput& input);
 
     public:
         GameClient() = default;
@@ -56,6 +81,14 @@ class GameClient{
         void ChooseTeam(int team);
         void StartMatch();
         void LeaveLobby();
+        void ReturnToLobby();
+        void UpdateGameplay(double deltaTime, const PlayerInput& input);
+        bool HasSnapshot() const{ return hasSnapshot; }
+        bool UDPReady() const{ return udpReady; }
+        bool MatchFinished() const{ return hasSnapshot && latest.finished; }
+        float RemainingTime() const{ return hasSnapshot ? latest.remaining : 0; }
+        const Game& GetGame() const{ return renderedGame; }
+        std::size_t GetOwnSlot() const{ return ownSlot; }
         const Protocol::Json& GetLobby() const{ return lobby; }
         const std::string& GetNotice() const{ return notice; }
         State GetState() const{ return state; }

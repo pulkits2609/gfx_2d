@@ -30,9 +30,12 @@ namespace MatchRules{
     constexpr float ShotRange = 4.0f;
     constexpr float ProjectileSpeed = 6.0f;
     constexpr float TracerLength = 0.12f;
-    constexpr std::size_t MaximumProjectiles = 48;
+    constexpr std::size_t MaximumProjectiles = 28;
 
     //local simulation runs independently of rendering
     constexpr double SimulationStep = 1.0 / 120.0;
+    constexpr double ServerStep = 1.0 / 30.0;
+    constexpr double SnapshotStep = 1.0 / 20.0;
+    constexpr double InputTimeout = 0.25;
     constexpr double TimerTolerance = 1e-9;
 }

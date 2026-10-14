@@ -11,8 +11,17 @@
 
 class Game{
     public:
-        //four players for this local checkpoint, one per team
-        static constexpr std::size_t PlayerCount = 4;
+        //Nine is the largest lobby: three teams with three players each.
+        //Offline practice still creates only four active players.
+        static constexpr std::size_t PlayerCount = 9;
+
+        struct State{
+            double time = 0;
+            int teams = 2;
+            std::array<int, 4> scores{};
+            std::array<Player, PlayerCount> players{};
+            std::vector<Projectile> projectiles;
+        };
 
     private:
         Arena arena;
@@ -38,7 +47,12 @@ class Game{
         );
 
     public:
-        explicit Game(int numberOfTeams = 4);
+        explicit Game(int numberOfTeams = 4, bool localPractice = true);
+        bool AddPlayer(std::uint64_t id, const std::string& name, int team);
+        void RemovePlayer(std::uint64_t id);
+        State GetState() const;
+        void ApplyState(const State& state);
+        static void PredictMovement(Player& player, const PlayerInput& input, double deltaTime, double time);
 
         //all intentions are applied together before collisions are resolved
         void Update(double deltaTime, const std::array<PlayerInput, PlayerCount>& inputs);

@@ -48,8 +48,8 @@ glm::vec3 GameUI::TeamColor(int team){
     return colors[std::clamp(team, 0, 3)];
 }
 
-void GameUI::Draw(const Game& game, std::size_t selectedPlayer,
-    const ViewLayout& view, const std::string& connectionStatus){
+MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
+    const ViewLayout& view, const std::string& connectionStatus, const GameClient* network){
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -97,6 +97,13 @@ void GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     ImVec2 connectionSize = regularFont->CalcTextSizeA(regularFont->FontSize * scale, 2000, 0, connectionLabel.c_str());
     text((screen.x - connectionSize.x) * 0.5f, 88 * scale, connectionLabel, muted);
 
+    if(network){
+        int seconds = static_cast<int>(std::ceil(network->RemainingTime()));
+        std::string timer = std::to_string(seconds / 60) + ":" + (seconds % 60 < 10 ? "0" : "") + std::to_string(seconds % 60);
+        ImVec2 size = regularFont->CalcTextSizeA(regularFont->FontSize * scale, 2000, 0, timer.c_str());
+        text((screen.x - size.x) * 0.5f, 107 * scale, timer, paper);
+    }
+
     //nameplates are placed using the same camera bounds as world rendering
     for(std::size_t i = 0; i < game.GetPlayers().size(); i++){
         const Player& other = game.GetPlayers()[i];
@@ -122,7 +129,7 @@ void GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     text(margin + 14 * scale, bottom + 10 * scale, player.name, paper);
     text(margin + 14 * scale, bottom + 32 * scale, std::to_string(player.health), paper, true);
     text(margin + 75 * scale, bottom + 43 * scale, "HP", muted);
-    text(margin + 141 * scale, bottom + 13 * scale,
+    text(margin + 141 * scale, bottom + 43 * scale,
         "K " + std::to_string(player.kills) + "  D " + std::to_string(player.deaths), muted);
     bar(margin + 14 * scale, bottom + 67 * scale, 250 * scale, 4 * scale,
         static_cast<float>(player.health) / MatchRules::StartingHealth, Color(teamColor));
@@ -148,7 +155,7 @@ void GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     text(right + 14 * scale, bottom + 80 * scale, reloadLabel, muted);
 
     //a small status ribbon leaves the arena clear while alive
-    if(!player.IsAlive() || player.IsSpawnProtected(game.GetTime())){
+    if((!network || !network->MatchFinished()) && (!player.IsAlive() || player.IsSpawnProtected(game.GetTime()))){
         std::string status = "SPAWN PROTECTION";
         if(!player.IsAlive()){
             status = "RESPAWN IN " + std::to_string(static_cast<int>(std::ceil(
@@ -160,11 +167,34 @@ void GameUI::Draw(const Game& game, std::size_t selectedPlayer,
         text(x, screen.y * 0.5f - 6 * scale, status, paper);
     }
 
-    std::string controls = "WASD MOVE   MOUSE AIM   LMB FIRE   1-4 SWITCH";
+    std::string controls = network ? "WASD MOVE   MOUSE AIM   LMB FIRE   ESC LEAVE" : "WASD MOVE   MOUSE AIM   LMB FIRE   1-4 SWITCH";
     ImVec2 controlsSize = regularFont->CalcTextSizeA(13 * scale, 2000, 0, controls.c_str());
     draw->AddText(regularFont, 13 * scale, ImVec2((screen.x - controlsSize.x) * 0.5f, screen.y - 15 * scale), muted, controls.c_str());
+    MenuAction action = MenuAction::None;
+    if(network && network->MatchFinished()){
+        ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(390, 0));
+        ImGui::Begin("Match results", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+        ImGui::TextUnformatted("TIME UP");
+        int best = -1, winner = 0, winners = 0;
+        for(int team = 0; team < game.GetTeamCount(); team++){
+            int score = game.GetTeamScores()[team];
+            ImGui::Text("Team %d: %d", team + 1, score);
+            if(score > best){ best = score; winner = team; winners = 1; }
+            else if(score == best) winners++;
+        }
+        if(winners > 1) ImGui::TextUnformatted("Draw");
+        else ImGui::Text("Team %d wins", winner + 1);
+        if(network->GetLobby()["hostId"] == network->GetPlayerId()){
+            if(ImGui::Button("Return to lobby")) action = MenuAction::Return;
+        }
+        else ImGui::TextDisabled("Waiting for the host to return to the lobby.");
+        if(ImGui::Button("Leave lobby")) action = MenuAction::Leave;
+        ImGui::End();
+    }
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    return action;
 }
 
 MenuAction GameUI::DrawMenu(MenuSettings& settings, const GameClient* network, bool busy){
@@ -264,9 +294,14 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, const GameClient* network, b
             action = settings.page == 1 ? MenuAction::Create : MenuAction::Join;
         ImGui::EndDisabled();
         if(ImGui::Button("Back")){ settings.page = 0; }
+        if(connected){
+            ImGui::SameLine();
+            if(ImGui::Button("Disconnect")) action = MenuAction::Disconnect;
+        }
         ImGui::TextWrapped("Run gfx_server first. For another computer, enter that server's LAN address. "
             "A lobby code belongs to the server you connect to.");
     }
+    if(!settings.error.empty()) ImGui::TextWrapped("%s", settings.error.c_str());
     if(network){
         ImGui::Separator();
         ImGui::TextWrapped("%s", network->GetStatus().c_str());

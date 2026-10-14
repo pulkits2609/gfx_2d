@@ -12,6 +12,7 @@
 #endif
 
 using boost::asio::ip::tcp;
+using boost::asio::ip::udp;
 using ErrorCode = boost::system::error_code;
 
 namespace{
@@ -45,6 +46,14 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
         boost::asio::steady_timer writeDeadline;
         std::string lobbyCode;
         bool closing = false;
+        bool udpReady = false;
+        udp::endpoint gameplayEndpoint;
+        std::deque<GameplayPackets::InputCommand> inputs;
+        PlayerInput lastInput;
+        std::uint32_t lastReceived = 0, lastProcessed = 0, lastReload = 0;
+        std::chrono::steady_clock::time_point inputTime{};
+        std::chrono::steady_clock::time_point udpRateWindow{};
+        unsigned udpCount = 0;
         std::uint64_t id;
         std::string name;
         std::string sessionToken;
@@ -138,6 +147,7 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
                 }
                 catch(const std::exception&){ Reject("Could not create session"); return; }
                 response["name"] = name;
+                response["gameplayPort"] = server.gameplaySocket.local_endpoint().port();
                 welcomed = true;
                 Send(response);
                 return;
@@ -191,13 +201,17 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
         }
 };
 
-GameServer::GameServer(boost::asio::io_context& io, const std::string& address, unsigned short port):
-    context(io), acceptor(io){
+GameServer::GameServer(boost::asio::io_context& io, const std::string& address, unsigned short port,
+    unsigned short gameplayPort):context(io), acceptor(io), gameplaySocket(io), tickTimer(io){
     tcp::endpoint endpoint(boost::asio::ip::make_address(address), port);
     acceptor.open(endpoint.protocol());
     acceptor.set_option(tcp::acceptor::reuse_address(true));
     acceptor.bind(endpoint);
     acceptor.listen();
+    udp::endpoint gameplay(boost::asio::ip::make_address(address), gameplayPort);
+    gameplaySocket.open(gameplay.protocol());
+    gameplaySocket.bind(gameplay);
+    gameplaySocket.non_blocking(true);
 }
 
 GameServer::~GameServer(){ Stop(); }
@@ -206,6 +220,9 @@ void GameServer::Start(){
     if(running) return;
     running = true;
     AcceptConnection();
+    ReceiveGameplay();
+    nextTick = std::chrono::steady_clock::now();
+    ScheduleTick();
 }
 
 void GameServer::AcceptConnection(){
@@ -229,6 +246,8 @@ void GameServer::Stop(){
     running = false;
     ErrorCode ignored;
     acceptor.close(ignored);
+    gameplaySocket.close(ignored);
+    tickTimer.cancel();
     auto active = sessions;
     for(auto& entry : active) entry.second->Close();
 }
@@ -240,7 +259,7 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
     auto session = sessions.at(id);
     std::string type = message["type"].get<std::string>();
     if(type != "create_lobby" && type != "join_lobby" && type != "choose_team"
-        && type != "start_match" && type != "leave_lobby") return false;
+        && type != "start_match" && type != "leave_lobby" && type != "return_lobby") return false;
     auto reject = [&](const std::string& reason){
         auto response = Protocol::Message("notice");
         response["message"] = reason;
@@ -304,6 +323,14 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
     auto found = lobbies.find(session->lobbyCode);
     if(found == lobbies.end()){ reject("Join or create a lobby first"); return true; }
     Lobby& lobby = found->second;
+    if(type == "return_lobby"){
+        if(lobby.hostId != id || !lobby.finished){ reject("Only the host can return after the match ends"); return true; }
+        lobby.playing = false;
+        lobby.finished = false;
+        lobby.game.reset();
+        BroadcastLobby(lobby);
+        return true;
+    }
     if(lobby.playing){ reject("Teams are locked during the match"); return true; }
     if(type == "choose_team"){
         if(!message.contains("team") || !message["team"].is_number_integer()
@@ -324,6 +351,23 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
         bool opponent = std::any_of(lobby.members.begin(), lobby.members.end(),
             [hostTeam](const LobbyMember& player){ return player.team != hostTeam; });
         if(!opponent){ reject("At least one player must be on an opposing team"); return true; }
+        for(const auto& member : lobby.members){
+            auto other = sessions.at(member.playerId);
+            if(!other->udpReady){ reject("Waiting for every player's gameplay connection"); return true; }
+        }
+        lobby.game = std::make_unique<Game>(lobby.teams, false);
+        for(const auto& member : lobby.members){
+            lobby.game->AddPlayer(member.playerId, member.name, member.team);
+            auto other = sessions.at(member.playerId);
+            other->inputs.clear();
+            other->lastInput = {};
+            other->lastReceived = other->lastProcessed = other->lastReload = 0;
+            other->inputTime = {};
+        }
+        lobby.match = nextMatch++;
+        lobby.tick = 0;
+        lobby.snapshotTime = 0;
+        lobby.finished = false;
         lobby.playing = true;
     }
     BroadcastLobby(lobby);
@@ -337,6 +381,7 @@ void GameServer::BroadcastLobby(const Lobby& lobby){
     message["teams"] = lobby.teams;
     message["minutes"] = lobby.minutes;
     message["playing"] = lobby.playing;
+    message["match"] = lobby.match;
     message["members"] = Protocol::Json::array();
     for(const auto& member : lobby.members)
         message["members"].push_back({{"playerId", member.playerId}, {"name", member.name}, {"team", member.team}});
@@ -369,9 +414,131 @@ void GameServer::LeaveLobby(std::uint64_t id){
         }
     }
     else{
+        if(room->second.game) room->second.game->RemovePlayer(id);
         auto& members = room->second.members;
         members.erase(std::remove_if(members.begin(), members.end(),
             [id](const LobbyMember& player){ return player.playerId == id; }), members.end());
         BroadcastLobby(room->second);
+    }
+}
+
+void GameServer::SendDatagram(const std::vector<std::uint8_t>& bytes, const udp::endpoint& endpoint){
+    //A nonblocking send either reaches the OS queue immediately or is dropped.
+    //UDP snapshots are replaceable, so there is no growing send queue.
+    ErrorCode error;
+    gameplaySocket.send_to(boost::asio::buffer(bytes), endpoint, 0, error);
+}
+
+void GameServer::ReceiveGameplay(){
+    gameplaySocket.async_receive_from(boost::asio::buffer(datagram), sender, [this](ErrorCode error, std::size_t size){
+        if(!running) return;
+        if(!error) HandleGameplay(size);
+        ReceiveGameplay();
+    });
+}
+
+void GameServer::HandleGameplay(std::size_t size){
+    GameplayPackets::Packet packet;
+    if(!GameplayPackets::Decode(datagram.data(), size, packet)) return;
+    auto found = sessions.find(packet.identity.id);
+    if(found == sessions.end()) return;
+    auto session = found->second;
+    if(!session->welcomed || session->closed || packet.identity.token != session->sessionToken) return;
+    auto now = std::chrono::steady_clock::now();
+    if(now - session->udpRateWindow >= std::chrono::seconds(1)){
+        session->udpRateWindow = now;
+        session->udpCount = 0;
+    }
+    if(++session->udpCount > 80) return;
+    if(packet.type == GameplayPackets::Type::Register){
+        ErrorCode error;
+        auto tcpPeer = session->socket.remote_endpoint(error);
+        if(error || sender.address() != tcpPeer.address()) return;
+        if(session->udpReady && sender != session->gameplayEndpoint) return;
+        session->gameplayEndpoint = sender;
+        session->udpReady = true;
+        SendDatagram(GameplayPackets::Registration(GameplayPackets::Type::Registered, packet.identity), sender);
+        return;
+    }
+    if(packet.type != GameplayPackets::Type::Input || !session->udpReady || sender != session->gameplayEndpoint) return;
+    auto room = lobbies.find(session->lobbyCode);
+    if(room == lobbies.end() || !room->second.playing || room->second.finished || packet.match != room->second.match) return;
+    for(const auto& command : packet.commands){
+        if(!GameplayPackets::Newer(command.sequence, session->lastReceived)) continue;
+        if(session->inputs.size() >= 8) break;
+        session->inputs.push_back(command);
+        session->lastReceived = command.sequence;
+        session->inputTime = now;
+    }
+}
+
+void GameServer::ScheduleTick(){
+    nextTick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(MatchRules::ServerStep));
+    tickTimer.expires_at(nextTick);
+    tickTimer.async_wait([this](ErrorCode error){
+        if(error || !running) return;
+        Tick();
+        //A long OS stall must not create an unbounded catch-up loop.
+        auto now = std::chrono::steady_clock::now();
+        if(now - nextTick > std::chrono::milliseconds(250)) nextTick = now;
+        ScheduleTick();
+    });
+}
+
+void GameServer::Tick(){
+    auto now = std::chrono::steady_clock::now();
+    for(auto& entry : lobbies){
+        Lobby& lobby = entry.second;
+        if(!lobby.playing || !lobby.game) continue;
+        lobby.tick++;
+        std::array<PlayerInput, Game::PlayerCount> inputs{};
+        if(!lobby.finished){
+            const auto& players = lobby.game->GetPlayers();
+            for(std::size_t i = 0; i < players.size(); i++){
+                if(!players[i].active) continue;
+                auto found = sessions.find(players[i].id);
+                if(found == sessions.end()) continue;
+                auto session = found->second;
+                session->lastInput.reload = false;
+                if(now - session->inputTime > std::chrono::duration<double>(MatchRules::InputTimeout)){
+                    session->lastInput = {};
+                    session->inputs.clear();
+                }
+                else if(!session->inputs.empty()){
+                    auto command = session->inputs.front();
+                    session->inputs.pop_front();
+                    session->lastInput = command.input;
+                    session->lastInput.reload = GameplayPackets::Newer(command.reload, session->lastReload);
+                    if(session->lastInput.reload) session->lastReload = command.reload;
+                    session->lastProcessed = command.sequence;
+                }
+                inputs[i] = session->lastInput;
+            }
+            double remaining = lobby.minutes * 60.0 - lobby.game->GetTime();
+            lobby.game->Update(std::min(MatchRules::ServerStep, remaining), inputs);
+            lobby.finished = lobby.game->GetTime() + 0.000001 >= lobby.minutes * 60.0;
+        }
+        lobby.snapshotTime += MatchRules::ServerStep;
+        if(lobby.snapshotTime + 0.000001 >= MatchRules::SnapshotStep){
+            lobby.snapshotTime -= MatchRules::SnapshotStep;
+            SendSnapshots(lobby);
+        }
+    }
+}
+
+void GameServer::SendSnapshots(Lobby& lobby){
+    GameplayPackets::Snapshot snapshot;
+    snapshot.match = lobby.match;
+    snapshot.tick = lobby.tick;
+    snapshot.state = lobby.game->GetState();
+    snapshot.remaining = lobby.finished ? 0.0f
+        : static_cast<float>(std::max(0.0, lobby.minutes * 60.0 - snapshot.state.time));
+    snapshot.finished = lobby.finished;
+    for(const auto& member : lobby.members){
+        auto found = sessions.find(member.playerId);
+        if(found == sessions.end() || !found->second->udpReady) continue;
+        auto session = found->second;
+        snapshot.acknowledged = session->lastProcessed;
+        SendDatagram(GameplayPackets::State({session->id, session->sessionToken}, snapshot), session->gameplayEndpoint);
     }
 }

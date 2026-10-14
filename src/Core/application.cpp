@@ -4,11 +4,12 @@
 #include<cmath>
 #include<string>
 #include<cstdio>
+#include<imgui.h>
 
 Application::Application(int numberOfTeams, const std::string& serverHost,
     unsigned short controlPort, const std::string& name):window(
-    1200,
-    1200,
+    1280,
+    800,
     "GFX_2D - 1-4 select | WASD move | Mouse aim | LMB shoot"
 ),
 shader(
@@ -69,6 +70,7 @@ void Application::GameLoop(){
 
         if(framebufferWidth <= 0 || framebufferHeight <= 0
             || glfwGetWindowAttrib(nativeWindow, GLFW_ICONIFIED) == GLFW_TRUE){
+            if(network) network->UpdateGameplay(deltaTime, {});
             glfwWaitEventsTimeout(0.05);
             previousTime = glfwGetTime();
             accumulator = 0.0;
@@ -76,9 +78,15 @@ void Application::GameLoop(){
         }
 
         bool escape = glfwGetKey(nativeWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS;
-        if(escape && !escapeWasPressed && offlinePractice) offlinePractice = false;
+        bool online = network && network->GetState() == GameClient::State::Connected
+            && network->GetLobby().is_object() && network->GetLobby()["playing"].get<bool>()
+            && network->HasSnapshot();
+        if(escape && !escapeWasPressed){
+            if(online) network->LeaveLobby();
+            else if(offlinePractice) offlinePractice = false;
+        }
         escapeWasPressed = escape;
-        if(!offlinePractice){
+        if(!offlinePractice && !online){
             accumulator = 0;
             renderer.Clear(0.025f, 0.03f, 0.04f, 1.0f);
             HandleMenu(hud.DrawMenu(menu, network.get(), pendingAction != MenuAction::None));
@@ -91,10 +99,20 @@ void Application::GameLoop(){
         ViewLayout view = ViewLayout::Calculate(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
         glm::mat4 projection = glm::ortho(-view.halfWidth, view.halfWidth,
             -view.halfHeight, view.halfHeight, -1.0f, 1.0f);
+        if(online){
+            game = network->GetGame();
+            selectedPlayer = network->GetOwnSlot();
+        }
         PlayerInput input = ReadInput(nativeWindow, view);
 
         input.reload = pendingReload[selectedPlayer];
-        accumulator += deltaTime;
+        if(online){
+            network->UpdateGameplay(deltaTime, input);
+            game = network->GetGame();
+            pendingReload[selectedPlayer] = false;
+            accumulator = 0;
+        }
+        else accumulator += std::min(deltaTime, 0.25);
 
         //process elapsed time in fixed simulation steps
         while(accumulator >= MatchRules::SimulationStep){
@@ -119,7 +137,9 @@ void Application::GameLoop(){
         DrawPlayers(projection);
         DrawShots(projection);
         glViewport(0, 0, framebufferWidth, framebufferHeight);
-        hud.Draw(game, selectedPlayer, view, "OFFLINE PRACTICE / ESC MENU");
+        MenuAction hudAction = hud.Draw(game, selectedPlayer, view,
+            online ? network->GetStatus() : "OFFLINE PRACTICE / ESC MENU", online ? network.get() : nullptr);
+        HandleMenu(hudAction);
 
         //avoid rebuilding the native window title every frame
         if(currentTime >= nextTitleUpdate){
@@ -143,7 +163,7 @@ PlayerInput Application::ReadInput(
         return input;
     }
 
-    for(std::size_t i = 0; i < game.GetPlayers().size(); i++){
+    for(std::size_t i = 0; offlinePractice && i < 4; i++){
         int key = GLFW_KEY_1 + static_cast<int>(i);
 
         if(keyboardinput.isKeyPressed(nativeWindow, key)){
@@ -184,7 +204,7 @@ PlayerInput Application::ReadInput(
     bool cursorInside = cursorX >= view.left && cursorX <= view.left + view.width
         && cursorY >= view.top && cursorY <= view.top + view.height;
 
-    input.shoot = cursorInside
+    input.shoot = cursorInside && !ImGui::GetIO().WantCaptureMouse
         && glfwGetMouseButton(nativeWindow, GLFW_MOUSE_BUTTON_LEFT)
             == GLFW_PRESS;
 
@@ -314,7 +334,8 @@ void Application::DrawShots(const glm::mat4& projection){
 void Application::UpdateWindowTitle(){
     const Player& player = game.GetPlayers()[selectedPlayer];
 
-    std::string title = "GFX_2D | 1-4 select | WASD move | Mouse aim | LMB shoot";
+    std::string title = offlinePractice ? "GFX_2D | 1-4 select | OFFLINE" : "GFX_2D | ONLINE";
+    title += " | WASD move | Mouse aim | LMB shoot";
     title += " | Player " + std::to_string(selectedPlayer + 1);
     title += " | HP " + std::to_string(player.health);
     title += " | K " + std::to_string(player.kills);
@@ -338,6 +359,7 @@ void Application::UpdateWindowTitle(){
 }
 
 void Application::HandleMenu(MenuAction action){
+    if(action != MenuAction::None) menu.error.clear();
     if(action == MenuAction::Offline){
         network.reset();
         pendingAction = MenuAction::None;
@@ -352,16 +374,22 @@ void Application::HandleMenu(MenuAction action){
             else network->JoinLobby(menu.code);
         }
         else{
-            if(menu.port < 1 || menu.port > 65535 || !Protocol::ValidName(menu.name) || !menu.address[0]) return;
-            if(action == MenuAction::Join && !LobbyRules::ValidCode(LobbyRules::NormalizeCode(menu.code))) return;
+            if(menu.port < 1 || menu.port > 65535){ menu.error = "Choose a TCP port from 1 to 65535."; return; }
+            if(!Protocol::ValidName(menu.name)){ menu.error = "Use a name of 1-24 printable characters, without spaces at either end."; return; }
+            if(!menu.address[0]){ menu.error = "Enter the server address."; return; }
+            if(action == MenuAction::Join && !LobbyRules::ValidCode(LobbyRules::NormalizeCode(menu.code))){
+                menu.error = "Enter the six-character lobby code shown by the host."; return;
+            }
             network = std::make_unique<GameClient>();
             network->Connect(menu.address, static_cast<unsigned short>(menu.port), menu.name);
             pendingAction = action;
         }
     }
+    else if(action == MenuAction::Disconnect) network.reset();
     else if(network){
         if(action == MenuAction::ChooseTeam) network->ChooseTeam(menu.chosenTeam);
         else if(action == MenuAction::Start) network->StartMatch();
         else if(action == MenuAction::Leave) network->LeaveLobby();
+        else if(action == MenuAction::Return) network->ReturnToLobby();
     }
 }

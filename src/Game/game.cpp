@@ -4,21 +4,24 @@
 #include<limits>
 
 // Each player starts on a different team and at a different spawn position.
-Game::Game(int numberOfTeams):teamCount(std::clamp(numberOfTeams, 2, 4)){
-    const std::array<glm::vec2, PlayerCount> spawnPositions{
+Game::Game(int numberOfTeams, bool localPractice):teamCount(std::clamp(numberOfTeams, 2, 4)){
+    if(!localPractice) return;
+    const std::array<glm::vec2, 4> spawnPositions{
         glm::vec2(-0.8f, 0.5f),
         glm::vec2(0.8f, 0.5f),
         glm::vec2(-0.8f, -0.5f),
         glm::vec2(0.8f, -0.5f)
     };
 
-    for(std::size_t i = 0; i < players.size(); i++){
+    for(std::size_t i = 0; i < 4; i++){
+        players[i].active = true;
+        players[i].id = i + 1;
         players[i].name = "Player " + std::to_string(i + 1);
         players[i].team = static_cast<int>(i) % teamCount;
         players[i].health = 0;
         players[i].spawnPosition = spawnPositions[i];
     }
-    for(std::size_t i = 0; i < players.size(); i++){
+    for(std::size_t i = 0; i < 4; i++){
         Respawn(players[i]);
     }
 }
@@ -93,7 +96,7 @@ void Game::Update(double deltaTime, const std::array<PlayerInput, PlayerCount>& 
 
     //all players' respawn timers advance, even if they are not selected
     for(Player& player : players){
-        if(!player.IsAlive()
+        if(player.active && !player.IsAlive()
             && elapsedTime + MatchRules::TimerTolerance >= player.respawnTime){
             Respawn(player);
         }
@@ -133,6 +136,13 @@ void Game::UpdatePlayer(Player& player, const PlayerInput& input, double deltaTi
         player.reloadEndTime = elapsedTime + MatchRules::ReloadDuration;
     }
 
+    PredictMovement(player, input, deltaTime, elapsedTime);
+}
+
+//The same movement and stamina calculation is reused for client prediction.
+//Prediction never decides hits, health or scores.
+void Game::PredictMovement(Player& player, const PlayerInput& input, double deltaTime, double time){
+    if(!player.IsAlive() || deltaTime <= 0) return;
     if(!input.boost) player.boostExhausted = false;
     glm::vec2 movement = input.movement;
     if(!std::isfinite(movement.x) || !std::isfinite(movement.y)) movement = glm::vec2(0.0f);
@@ -148,9 +158,9 @@ void Game::UpdatePlayer(Player& player, const PlayerInput& input, double deltaTi
             player.stamina = 0.0f;
             player.boostExhausted = true;
         }
-        player.staminaRecoveryTime = elapsedTime + MatchRules::StaminaRecoveryDelay;
+        player.staminaRecoveryTime = time + MatchRules::StaminaRecoveryDelay;
     }
-    else if(elapsedTime >= player.staminaRecoveryTime){
+    else if(time >= player.staminaRecoveryTime){
         player.stamina = std::min(MatchRules::MaximumStamina,
             player.stamina + MatchRules::StaminaRecovery * static_cast<float>(deltaTime));
     }
@@ -160,7 +170,7 @@ void Game::UpdatePlayer(Player& player, const PlayerInput& input, double deltaTi
         player.position += movement * speed * static_cast<float>(deltaTime);
     }
 
-    player.position = arena.ClampPosition(
+    player.position = Arena().ClampPosition(
         player.position,
         MatchRules::PlayerRadius
     );
@@ -288,4 +298,42 @@ void Game::UpdateProjectiles(double deltaTime, const std::array<glm::vec2, Playe
             || bullet->remainingDistance <= 0.000001f) bullet = projectiles.erase(bullet);
         else ++bullet;
     }
+}
+
+bool Game::AddPlayer(std::uint64_t id, const std::string& name, int team){
+    if(id == 0 || team < 0 || team >= teamCount) return false;
+    for(const auto& player : players) if(player.active && player.id == id) return false;
+    for(Player& player : players){
+        if(player.active) continue;
+        player = Player{};
+        player.active = true;
+        player.id = id;
+        player.name = name;
+        player.team = team;
+        player.health = 0;
+        static const glm::vec2 corners[]{{-1.1f, 0.65f}, {1.1f, -0.65f}, {-1.1f, -0.65f}, {1.1f, 0.65f}};
+        player.spawnPosition = corners[team];
+        Respawn(player);
+        return true;
+    }
+    return false;
+}
+
+void Game::RemovePlayer(std::uint64_t id){
+    for(std::size_t i = 0; i < players.size(); i++){
+        if(!players[i].active || players[i].id != id) continue;
+        players[i].active = false;
+        projectiles.erase(std::remove_if(projectiles.begin(), projectiles.end(),
+            [i](const Projectile& bullet){ return bullet.owner == i; }), projectiles.end());
+    }
+}
+
+Game::State Game::GetState() const{ return {elapsedTime, teamCount, teamScores, players, projectiles}; }
+
+void Game::ApplyState(const State& state){
+    elapsedTime = state.time;
+    teamCount = state.teams;
+    teamScores = state.scores;
+    players = state.players;
+    projectiles = state.projectiles;
 }

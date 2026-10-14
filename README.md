@@ -6,15 +6,38 @@ The goal is to understand how the different parts of a 2D game/graphics applicat
 
 ## Current Status
 
-The local arena now has four named players, 2-4 configurable teams, team scores,
-health/ammo/stamina HUD, equal circular player contact, reload and boost. Run
-`gfx --teams 2`, `--teams 3`, or `--teams 4` from the executable directory.
-Use WASD to move, mouse to aim, LMB to fire, R to reload and Shift to boost.
+The menu offers Create Lobby, Join Lobby and Play Offline. A host chooses 2-4
+teams and a match duration of 1-30 minutes. Players choose an available team;
+only the host can start, with at least one opposing player. Joining is locked
+during the match. Two teams allow four players each, three allow three each,
+and four allow two each. The host leaving closes the lobby.
 
-The first networking checkpoint adds `gfx_server`, `gfx_control_client`, shared
-bounded JSON framing and optional `gfx --server HOST --name NAME` TCP sessions.
-Gameplay remains local at this stage. Build the server alone with `-DGFX_BUILD_CLIENT=OFF`.
-Use `-DGFX_BUILD_CLIENT=OFF` for a server-only build without graphics dependencies.
+The dedicated server owns movement, pushing, travelling bullets, health,
+reload, boost, respawns, scores and the match timer. TCP handles sessions and
+lobbies; authenticated UDP endpoints carry inputs and snapshots. The server
+runs at 30 Hz and sends snapshots at 20 Hz. Clients predict their own movement
+and interpolate other players. Offline practice keeps four switchable players.
+
+Run commands from the executable directory so shader assets can be found:
+
+```powershell
+cd build
+.\gfx_server.exe
+# In two other terminals, launch one client in each:
+.\gfx.exe --name Pulkit
+.\gfx.exe --name Player2
+```
+
+Create a lobby in the first client, join its code in the second, choose teams,
+then start as host. The default address is `127.0.0.1`, TCP port 7777 and UDP port
+7778. For LAN play, run `gfx_server --bind 0.0.0.0` and enter that computer's LAN
+address in each client. The server must be reachable on both ports; codes belong
+to that server. Custom server ports use `--port` and `--udp-port`.
+
+Use WASD to move, mouse to aim, LMB to fire, R to reload and Shift to boost.
+Escape leaves an online match or returns offline practice to the menu. Keys
+1-4 switch players only in offline practice. Build without graphics using
+`-DGFX_BUILD_CLIENT=OFF`; run checks with `ctest --test-dir build --output-on-failure`.
 
 
 The project currently has:

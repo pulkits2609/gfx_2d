@@ -45,9 +45,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(boost_headers json)
 find_package(Threads REQUIRED)
 
-add_library(gfx_protocol STATIC src/Network/protocol.cpp)
+add_library(gfx_protocol STATIC src/Network/protocol.cpp src/Network/gameplayPackets.cpp)
 target_include_directories(gfx_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(gfx_protocol PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(gfx_protocol PUBLIC nlohmann_json::nlohmann_json gfx_game)
 
 add_library(gfx_network STATIC src/Network/gameClient.cpp src/Network/gameServer.cpp)
 target_include_directories(gfx_network SYSTEM PUBLIC ${boost_headers_SOURCE_DIR})
@@ -154,6 +154,11 @@ if(BUILD_TESTING)
     add_executable(protocol_tests tests/protocol_tests.cpp)
     target_link_libraries(protocol_tests PRIVATE gfx_protocol)
     add_test(NAME protocol COMMAND protocol_tests)
+    add_executable(gameplay_packet_tests tests/gameplay_packets.cpp)
+    target_link_libraries(gameplay_packet_tests PRIVATE gfx_protocol)
+    add_test(NAME gameplay_packets COMMAND gameplay_packet_tests)
+    add_executable(gameplay_test_client tests/gameplay_client.cpp)
+    target_link_libraries(gameplay_test_client PRIVATE gfx_network)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_test(NAME tcp_sessions COMMAND ${Python3_EXECUTABLE}
@@ -163,6 +168,13 @@ if(BUILD_TESTING)
         add_test(NAME lobbies COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/lobbies.py $<TARGET_FILE:gfx_server>)
         set_tests_properties(lobbies PROPERTIES TIMEOUT 60)
+        add_test(NAME two_clients COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/two_clients.py
+            $<TARGET_FILE:gfx_server> $<TARGET_FILE:gameplay_test_client>)
+        set_tests_properties(two_clients PROPERTIES TIMEOUT 35)
+        add_test(NAME udp_gameplay COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/udp_gameplay.py $<TARGET_FILE:gfx_server>)
+        set_tests_properties(udp_gameplay PROPERTIES TIMEOUT 30)
     endif()
 endif()
 
