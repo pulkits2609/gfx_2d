@@ -2,6 +2,7 @@
 # Build
 
 build/
+build-headless/
 cmake-build-*/
 out/
 

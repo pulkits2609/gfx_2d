@@ -44,7 +44,9 @@ jobs:
               exit 1
           }
 
-          Write-Host "gfx.exe found successfully."
+          if (-not (Test-Path "build/Release/gfx_server.exe")) { throw "gfx_server.exe missing" }
+          if (-not (Test-Path "build/Release/gfx_control_client.exe")) { throw "gfx_control_client.exe missing" }
+          Write-Host "Client and control-server executables found successfully."
 
       - name: Verify runtime assets
         shell: pwsh
@@ -67,13 +69,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist/gfx_2d-windows-x64 | Out-Null
 
           Copy-Item `
-            "build/Release/gfx.exe" `
+            "build/Release/gfx.exe", "build/Release/gfx_server.exe", "build/Release/gfx_control_client.exe" `
             "dist/gfx_2d-windows-x64/"
 
           Copy-Item `
             "build/Release/assets" `
             "dist/gfx_2d-windows-x64/assets" `
             -Recurse
+
+          Copy-Item "build/Release/licenses" "dist/gfx_2d-windows-x64/licenses" -Recurse
 
       - name: Create Windows archive
         shell: pwsh
@@ -130,6 +134,8 @@ jobs:
         run: |
           test -f build/gfx
           test -x build/gfx
+          test -x build/gfx_server
+          test -x build/gfx_control_client
 
           echo "gfx executable found successfully."
 
@@ -144,11 +150,13 @@ jobs:
         run: |
           mkdir -p dist/gfx_2d-linux-x64
 
-          cp build/gfx \
+          cp build/gfx build/gfx_server build/gfx_control_client \
              dist/gfx_2d-linux-x64/
 
           cp -r build/assets \
                 dist/gfx_2d-linux-x64/
+
+          cp -r build/licenses dist/gfx_2d-linux-x64/
 
       - name: Create Linux archive
         run: |
@@ -164,6 +172,22 @@ jobs:
           path: gfx_2d-linux-x64.tar.gz
 
 
+  # THE SERVER MUST CONFIGURE WITHOUT ANY GRAPHICS DEPENDENCIES
+
+  build-headless:
+    name: Build headless server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Configure without the client
+        run: cmake -S . -B build-headless -DGFX_BUILD_CLIENT=OFF
+      - name: Build server and tests
+        run: cmake --build build-headless --parallel 2
+      - name: Run tests
+        run: ctest --test-dir build-headless --output-on-failure
+
+
   # GITHUB RELEASE
 
   release:
@@ -172,6 +196,7 @@ jobs:
     needs:
       - build-windows
       - build-linux
+      - build-headless
 
     runs-on: ubuntu-latest
 

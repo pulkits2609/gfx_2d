@@ -1,3 +1,13 @@
+# TCP reminders
+
+- One frame = four big-endian length bytes + one versioned JSON object (max 16 KiB).
+- async_read fills the requested buffer even if TCP splits a message.
+- Session flow: hello -> welcome -> ping/players -> reply -> repeat.
+- Only the server assigns player IDs and random session tokens.
+- GameClient::Poll handles a bounded amount of ready work without waiting.
+- gfx_server and gfx_control_client have no OpenGL/GLFW dependency.
+- Movement synchronization comes next; a TCP connection is not synchronized gameplay.
+
 # Current gameplay reminders
 
 - Input is sampled by Application and processed by Game at 120 fixed steps/second.

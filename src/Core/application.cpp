@@ -4,7 +4,8 @@
 #include<cmath>
 #include<string>
 
-Application::Application(int numberOfTeams):window(
+Application::Application(int numberOfTeams, const std::string& serverHost,
+    unsigned short controlPort, const std::string& name):window(
     1200,
     1200,
     "GFX_2D - 1-4 select | WASD move | Mouse aim | LMB shoot"
@@ -24,7 +25,10 @@ transforms(),
 keyboardinput(),
 game(numberOfTeams),
 hud(window.GetNativeWindow()){
-
+    if(!serverHost.empty()){
+        network.Connect(serverHost, controlPort, name);
+        game.SetPlayerName(0, name);
+    }
 }
     
 
@@ -38,6 +42,7 @@ void Application::GameLoop(){
 
     while(!window.ShouldClose()){
         window.PollEvents();
+        network.Poll();
 
         double currentTime = glfwGetTime();
         double deltaTime = currentTime - previousTime;
@@ -112,7 +117,7 @@ void Application::GameLoop(){
         DrawArena(projection);
         DrawPlayers(projection);
         DrawShots(projection);
-        hud.Draw(game, selectedPlayer, viewHalfWidth, viewHalfHeight);
+        hud.Draw(game, selectedPlayer, viewHalfWidth, viewHalfHeight, network.GetStatus());
 
         //avoid rebuilding the native window title every frame
         if(currentTime >= nextTitleUpdate){

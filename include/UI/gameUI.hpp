@@ -20,5 +20,5 @@ class GameUI{
 
         static glm::vec3 TeamColor(int team);
         void Draw(const Game& game, std::size_t selectedPlayer,
-            float viewHalfWidth, float viewHalfHeight);
+            float viewHalfWidth, float viewHalfHeight, const std::string& connectionStatus);
 };

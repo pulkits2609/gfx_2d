@@ -11,6 +11,12 @@ health/ammo/stamina HUD, equal circular player contact, reload and boost. Run
 `gfx --teams 2`, `--teams 3`, or `--teams 4` from the executable directory.
 See [local gameplay controls and design](docs/local_gameplay.md).
 
+The first networking checkpoint adds `gfx_server`, `gfx_control_client`, shared
+bounded JSON framing and optional `gfx --server HOST --name NAME` TCP sessions.
+Gameplay remains local at this stage. See [protocol and headless build](docs/protocol.md).
+Use `-DGFX_BUILD_CLIENT=OFF` for a server-only build without graphics dependencies.
+
+
 The project currently has:
 
 - Cross-platform window creation using GLFW

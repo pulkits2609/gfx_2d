@@ -49,7 +49,7 @@ glm::vec3 GameUI::TeamColor(int team){
 }
 
 void GameUI::Draw(const Game& game, std::size_t selectedPlayer,
-    float viewHalfWidth, float viewHalfHeight){
+    float viewHalfWidth, float viewHalfHeight, const std::string& connectionStatus){
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -92,6 +92,10 @@ void GameUI::Draw(const Game& game, std::size_t selectedPlayer,
             rectangle(x + cardWidth - 12 * scale, y + 14 * scale, 4 * scale, 4 * scale, paper);
         }
     }
+
+    std::string connectionLabel = connectionStatus.substr(0, 65);
+    ImVec2 connectionSize = regularFont->CalcTextSizeA(regularFont->FontSize * scale, 2000, 0, connectionLabel.c_str());
+    text((screen.x - connectionSize.x) * 0.5f, 88 * scale, connectionLabel, muted);
 
     //nameplates are placed using the same camera bounds as world rendering
     for(std::size_t i = 0; i < game.GetPlayers().size(); i++){

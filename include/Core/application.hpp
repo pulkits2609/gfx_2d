@@ -9,6 +9,7 @@
 #include "Input/keyboardInput.hpp"
 #include "Game/game.hpp"
 #include "UI/gameUI.hpp"
+#include "Network/gameClient.hpp"
 #include<array>
 #include<cstddef>
 
@@ -25,6 +26,7 @@ class Application{
         KeyboardInput keyboardinput;
         Game game;
         GameUI hud;
+        GameClient network;
 
         std::size_t selectedPlayer = 0;
         double nextTitleUpdate = 0.0;
@@ -51,7 +53,8 @@ class Application{
         void UpdateWindowTitle();
 
     public:
-        explicit Application(int numberOfTeams = 4);
+        explicit Application(int numberOfTeams = 4, const std::string& serverHost = "",
+            unsigned short controlPort = Protocol::ControlPort, const std::string& name = "Player 1");
         void RunApplication();
         void GameLoop();
 };

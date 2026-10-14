@@ -1,3 +1,11 @@
+# TCP session checkpoint
+
+GameServer accepts control connections; ControlSession owns each socket and its
+bounded frame buffers. Protocol shares length encoding and JSON validation.
+GameClient handles asynchronous connection/heartbeat callbacks through Poll.
+The optional client connection never drives local gameplay yet. See
+[protocol.md](protocol.md) for the message flow, limits and headless build.
+
 # Current gameplay structure
 
 Application owns Window, graphics resources, Game and GameUI. Game owns plain

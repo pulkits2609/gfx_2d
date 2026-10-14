@@ -9,9 +9,62 @@ project(gfx
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(OpenGL REQUIRED)
+option(GFX_BUILD_CLIENT "Build the graphical game client" ON)
 
 include(FetchContent)
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
+
+FetchContent_Declare(
+    glm
+    GIT_REPOSITORY https://github.com/g-truc/glm.git
+    GIT_TAG 1.0.1
+)
+
+FetchContent_MakeAvailable(glm)
+
+add_library(gfx_game STATIC src/Game/game.cpp)
+target_include_directories(gfx_game PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(gfx_game PUBLIC glm::glm)
+
+#Boost.Asio is header-only here; do not configure or build unrelated Boost libraries.
+FetchContent_Declare(
+    boost_headers
+    URL https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz
+    URL_HASH SHA256=2575e74ffc3ef1cd0babac2c1ee8bdb5782a0ee672b1912da40e5b4b591ca01f
+    DOWNLOAD_DIR ${CMAKE_BINARY_DIR}/_deps
+    SOURCE_SUBDIR header-only
+)
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
+)
+FetchContent_MakeAvailable(boost_headers json)
+find_package(Threads REQUIRED)
+
+add_library(gfx_protocol STATIC src/Network/protocol.cpp)
+target_include_directories(gfx_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(gfx_protocol PUBLIC nlohmann_json::nlohmann_json)
+
+add_library(gfx_network STATIC src/Network/gameClient.cpp src/Network/gameServer.cpp)
+target_include_directories(gfx_network SYSTEM PUBLIC ${boost_headers_SOURCE_DIR})
+target_link_libraries(gfx_network PUBLIC gfx_protocol Threads::Threads)
+target_compile_definitions(gfx_network PUBLIC BOOST_ERROR_CODE_HEADER_ONLY BOOST_SYSTEM_NO_LIB)
+if(WIN32)
+    target_compile_definitions(gfx_network PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0601)
+    target_link_libraries(gfx_network PUBLIC ws2_32 mswsock bcrypt)
+endif()
+
+add_executable(gfx_server server/main.cpp)
+target_link_libraries(gfx_server PRIVATE gfx_network)
+add_executable(gfx_control_client tools/control_client.cpp)
+target_link_libraries(gfx_control_client PRIVATE gfx_network)
+
+if(GFX_BUILD_CLIENT)
+find_package(OpenGL REQUIRED)
 
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -24,14 +77,6 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(glfw)
-
-FetchContent_Declare(
-    glm
-    GIT_REPOSITORY https://github.com/g-truc/glm.git
-    GIT_TAG 1.0.1
-)
-
-FetchContent_MakeAvailable(glm)
 
 FetchContent_Declare(
     imgui
@@ -51,10 +96,6 @@ add_library(imgui STATIC
 )
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui PUBLIC glfw OpenGL::GL ${CMAKE_DL_LIBS})
-
-add_library(gfx_game STATIC src/Game/game.cpp)
-target_include_directories(gfx_game PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(gfx_game PUBLIC glm::glm)
 
 add_executable(gfx
 
@@ -89,6 +130,7 @@ target_link_libraries(gfx
         glm::glm
         gfx_game
         imgui
+        gfx_network
 )
 
 # Runtime Assets
@@ -102,9 +144,32 @@ add_custom_command(TARGET gfx POST_BUILD
         ${imgui_SOURCE_DIR}/LICENSE.txt $<TARGET_FILE_DIR:gfx>/assets/licenses/imgui.txt
 )
 
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     add_executable(game_tests tests/game_tests.cpp)
     target_link_libraries(game_tests PRIVATE gfx_game)
     add_test(NAME gameplay COMMAND game_tests)
+    add_executable(protocol_tests tests/protocol_tests.cpp)
+    target_link_libraries(protocol_tests PRIVATE gfx_protocol)
+    add_test(NAME protocol COMMAND protocol_tests)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME tcp_sessions COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/tcp_sessions.py
+            $<TARGET_FILE:gfx_server> $<TARGET_FILE:gfx_control_client>)
+        set_tests_properties(tcp_sessions PROPERTIES TIMEOUT 60)
+    endif()
 endif()
+
+#Server packages need dependency notices but no shader assets or graphics libraries.
+foreach(control_target gfx_server gfx_control_client)
+    add_custom_command(TARGET ${control_target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${control_target}>/licenses
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${boost_headers_SOURCE_DIR}/LICENSE_1_0.txt
+            $<TARGET_FILE_DIR:${control_target}>/licenses/boost.txt
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${json_SOURCE_DIR}/LICENSE.MIT
+            $<TARGET_FILE_DIR:${control_target}>/licenses/json.txt
+    )
+endforeach()

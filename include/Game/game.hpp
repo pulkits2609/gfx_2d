@@ -63,4 +63,7 @@ class Game{
 
         int GetTeamCount() const{ return teamCount; }
         const std::array<int, 4>& GetTeamScores() const{ return teamScores; }
+        void SetPlayerName(std::size_t index, const std::string& name){
+            if(index < players.size() && !name.empty() && name.size() <= 24) players[index].name = name;
+        }
 };
