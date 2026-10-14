@@ -9,11 +9,11 @@ The goal is to understand how the different parts of a 2D game/graphics applicat
 The local arena now has four named players, 2-4 configurable teams, team scores,
 health/ammo/stamina HUD, equal circular player contact, reload and boost. Run
 `gfx --teams 2`, `--teams 3`, or `--teams 4` from the executable directory.
-See [local gameplay controls and design](docs/local_gameplay.md).
+Use WASD to move, mouse to aim, LMB to fire, R to reload and Shift to boost.
 
 The first networking checkpoint adds `gfx_server`, `gfx_control_client`, shared
 bounded JSON framing and optional `gfx --server HOST --name NAME` TCP sessions.
-Gameplay remains local at this stage. See [protocol and headless build](docs/protocol.md).
+Gameplay remains local at this stage. Build the server alone with `-DGFX_BUILD_CLIENT=OFF`.
 Use `-DGFX_BUILD_CLIENT=OFF` for a server-only build without graphics dependencies.
 
 
@@ -89,7 +89,6 @@ gfx_2d/
 │   └── shaders/
 ├── external/
 │   └── glad-generated/
-├── docs/
 ├── CMakeLists.txt
 └── README.md
 ```

@@ -1,4 +1,5 @@
 #include"Game/game.hpp"
+#include"UI/viewLayout.hpp"
 #include<cmath>
 #include<iostream>
 #include<stdexcept>
@@ -13,6 +14,15 @@ void Step(Game& game, int ticks, const std::array<PlayerInput, Game::PlayerCount
 
 int main(){
     try{
+        for(glm::vec2 screen : {glm::vec2(960, 640), glm::vec2(1920, 1080), glm::vec2(3840, 2160)}){
+            ViewLayout view = ViewLayout::Calculate(screen.x, screen.y);
+            float arenaTop = view.top + (1 - MatchRules::ArenaHalfHeight / view.halfHeight) * view.height * 0.5f;
+            float arenaBottom = view.top + (1 + MatchRules::ArenaHalfHeight / view.halfHeight) * view.height * 0.5f;
+            Check(arenaTop > 110 * view.scale, "arena stays below scoreboard after resizing");
+            Check(arenaBottom < screen.y - 122 * view.scale, "arena stays above bottom HUD");
+            Check(glm::length(view.ToWorld(view.left + view.width * 0.5f,
+                view.top + view.height * 0.5f)) < 0.00001f, "mouse uses the arena viewport");
+        }
         Game game;
         Check(game.GetPlayers()[0].name == "Player 1", "default player name");
         Check(std::abs(MatchRules::PlayerRadius - 0.105f) < 0.00001f, "smaller shared hitbox");
@@ -72,13 +82,39 @@ int main(){
         Step(weapon, 169, inputs);
         Check(!weapon.GetPlayers()[0].reloading && weapon.GetPlayers()[0].ammunition == 30, "reload completes");
 
+        Game travelling;
+        Step(travelling, 121);
+        inputs = {};
+        inputs[0].hasAim = true;
+        inputs[0].aimPosition = travelling.GetPlayers()[1].position;
+        inputs[0].shoot = true;
+        Step(travelling, 1, inputs);
+        Check(travelling.GetPlayers()[1].health == 100, "firing does not cause instant damage");
+        inputs[0].shoot = false;
+        Step(travelling, 15, inputs);
+        Check(travelling.GetPlayers()[1].health == 100, "no damage while bullet is travelling");
+        Step(travelling, 20, inputs);
+        Check(travelling.GetPlayers()[1].health == 75, "damage occurs on bullet arrival");
+
+        Game dodge;
+        Step(dodge, 121);
+        inputs = {};
+        inputs[0].hasAim = true;
+        inputs[0].aimPosition = dodge.GetPlayers()[1].position;
+        inputs[0].shoot = true;
+        Step(dodge, 1, inputs);
+        inputs[0].shoot = false;
+        inputs[1].movement = {0, -1};
+        Step(dodge, 60, inputs);
+        Check(dodge.GetPlayers()[1].health == 100, "a target can dodge a travelling bullet");
+
         Game combat;
         Step(combat, 121);
         inputs = {};
         inputs[0].hasAim = true;
         inputs[0].aimPosition = combat.GetPlayers()[1].position;
         inputs[0].shoot = true;
-        Step(combat, 92, inputs);
+        Step(combat, 125, inputs);
         Check(!combat.GetPlayers()[1].IsAlive(), "four hits kill");
         Check(combat.GetTeamScores()[0] == 1 && combat.GetPlayers()[0].kills == 1, "kill updates team score once");
         inputs = {};

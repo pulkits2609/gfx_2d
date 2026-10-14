@@ -1,6 +1,7 @@
 #pragma once
 
 #include"Game/game.hpp"
+#include"UI/viewLayout.hpp"
 #include<glm/glm.hpp>
 
 struct GLFWwindow;
@@ -20,5 +21,5 @@ class GameUI{
 
         static glm::vec3 TeamColor(int team);
         void Draw(const Game& game, std::size_t selectedPlayer,
-            float viewHalfWidth, float viewHalfHeight, const std::string& connectionStatus);
+            const ViewLayout& view, const std::string& connectionStatus);
 };

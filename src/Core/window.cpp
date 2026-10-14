@@ -17,6 +17,7 @@ Window::Window(int width, int height, const std::string& windowName):window(null
     else{
         std::cout<<"Window Created Successfully\n";
     }
+    glfwSetWindowSizeLimits(window, 960, 640, GLFW_DONT_CARE, GLFW_DONT_CARE);
 
     //forgot about make Context current bruh, it should be done immediately after window creation, NOTE TO YOURSELF 
     glfwMakeContextCurrent(window);

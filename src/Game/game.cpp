@@ -99,7 +99,9 @@ void Game::Update(double deltaTime, const std::array<PlayerInput, PlayerCount>& 
         }
     }
 
+    std::array<glm::vec2, PlayerCount> oldPositions{};
     for(std::size_t i = 0; i < players.size(); i++){
+        oldPositions[i] = players[i].position;
         if(players[i].IsAlive()) UpdatePlayer(players[i], inputs[i], deltaTime);
     }
 
@@ -118,6 +120,7 @@ void Game::Update(double deltaTime, const std::array<PlayerInput, PlayerCount>& 
         }
         if(inputs[i].shoot) Fire(i);
     }
+    UpdateProjectiles(deltaTime, oldPositions);
 }
 
 void Game::UpdatePlayer(Player& player, const PlayerInput& input, double deltaTime){
@@ -222,81 +225,67 @@ bool Game::RayHitsPlayer(
 }
 
 
-// The shot begins with the distance to the arena wall. Any closer living opponent becomes the current target.
-// Only the nearest target receives damage. Dead players and teammates are excluded. A protected opponent stops the ray but receives no damage.
-
+//Firing creates a bullet. Its later movement decides whether anybody is hit.
 void Game::Fire(std::size_t shooterIndex){
     Player& shooter = players[shooterIndex];
-
     if(!shooter.IsAlive() || shooter.IsSpawnProtected(elapsedTime)
-        || shooter.reloading || shooter.ammunition <= 0){
-        return;
-    }
+        || shooter.reloading || shooter.ammunition <= 0
+        || elapsedTime + MatchRules::TimerTolerance < shooter.nextShotTime
+        || projectiles.size() >= MatchRules::MaximumProjectiles) return;
 
-    if(elapsedTime + MatchRules::TimerTolerance < shooter.nextShotTime){
-        return;
-    }
-
-    //a valid shot consumes the cooldown, even if it misses
     shooter.nextShotTime = elapsedTime + MatchRules::FireCooldown;
     shooter.ammunition--;
+    Projectile bullet;
+    bullet.id = nextProjectileId++;
+    bullet.owner = shooterIndex;
+    bullet.team = shooter.team;
+    bullet.position = shooter.position;
+    bullet.direction = shooter.aimDirection;
+    bullet.firedAt = elapsedTime;
+    projectiles.push_back(bullet);
+}
 
-    float nearestDistance = arena.GetRayExitDistance(
-        shooter.position,
-        shooter.aimDirection,
-        MatchRules::ShotRange
-    );
-
-    std::size_t hitIndex = players.size();
-
-    for(std::size_t i = 0; i < players.size(); i++){
-        const Player& target = players[i];
-
-        if(i == shooterIndex
-            || !target.IsAlive()
-            || target.team == shooter.team){
-            continue;
+void Game::UpdateProjectiles(double deltaTime, const std::array<glm::vec2, PlayerCount>& oldPositions){
+    for(auto bullet = projectiles.begin(); bullet != projectiles.end();){
+        //A new bullet starts at the end of this tick, so it travels next tick.
+        if(bullet->firedAt >= elapsedTime){ ++bullet; continue; }
+        float travel = std::min(bullet->remainingDistance,
+            MatchRules::ProjectileSpeed * static_cast<float>(deltaTime));
+        float wallDistance = arena.GetRayExitDistance(bullet->position, bullet->direction, bullet->remainingDistance);
+        float firstFraction = travel > 0 ? std::min(1.0f, wallDistance / travel) : 0;
+        std::size_t hit = players.size();
+        for(std::size_t i = 0; i < players.size(); i++){
+            const Player& target = players[i];
+            if(i == bullet->owner || !target.IsAlive() || target.team == bullet->team) continue;
+            //Subtract the target's movement: this checks both moving paths,
+            //rather than testing only where the target ended the tick.
+            glm::vec2 relativeStep = bullet->direction * travel - (target.position - oldPositions[i]);
+            float relativeLength = glm::length(relativeStep);
+            float distance = 0;
+            if(relativeLength > 0.000001f && RayHitsPlayer(bullet->position,
+                relativeStep / relativeLength, oldPositions[i], distance)){
+                float fraction = distance / relativeLength;
+                if(fraction <= firstFraction){ firstFraction = fraction; hit = i; }
+            }
         }
-
-        float hitDistance = 0.0f;
-
-        if(RayHitsPlayer(
-            shooter.position,
-            shooter.aimDirection,
-            target.position,
-            hitDistance
-        ) && hitDistance < nearestDistance){
-            nearestDistance = hitDistance;
-            hitIndex = i;
+        bullet->position += bullet->direction * (travel * firstFraction);
+        bullet->remainingDistance -= travel * firstFraction;
+        if(hit != players.size()){
+            Player& target = players[hit];
+            if(!target.IsSpawnProtected(elapsedTime)){
+                target.health = std::max(0, target.health - MatchRules::ShotDamage);
+                if(!target.IsAlive()){
+                    target.deaths++;
+                    players[bullet->owner].kills++;
+                    teamScores[static_cast<std::size_t>(bullet->team)]++;
+                    target.reloading = false;
+                    target.boosting = false;
+                    target.respawnTime = elapsedTime + MatchRules::RespawnDelay;
+                }
+            }
         }
-    }
-
-    shots[shooterIndex].start = shooter.position;
-    shots[shooterIndex].end = shooter.position
-        + shooter.aimDirection * nearestDistance;
-    shots[shooterIndex].firedAt = elapsedTime;
-    shots[shooterIndex].expiresAt = elapsedTime + nearestDistance / MatchRules::TracerSpeed
-        + MatchRules::ShotTraceDuration;
-
-    if(hitIndex == players.size()){
-        return;
-    }
-
-    Player& target = players[hitIndex];
-
-    //protected players still stop the ray, but receive no damage
-    if(target.IsSpawnProtected(elapsedTime)){
-        return;
-    }
-
-    target.health = std::max(0, target.health - MatchRules::ShotDamage);
-
-    if(!target.IsAlive()){
-        target.deaths++;
-        shooter.kills++;
-        teamScores[static_cast<std::size_t>(shooter.team)]++;
-        target.reloading = false;
-        target.boosting = false;
-        target.respawnTime = elapsedTime + MatchRules::RespawnDelay;
+        if(hit != players.size() || wallDistance <= travel + 0.000001f
+            || bullet->remainingDistance <= 0.000001f) bullet = projectiles.erase(bullet);
+        else ++bullet;
     }
 }

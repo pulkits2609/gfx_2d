@@ -2,6 +2,8 @@
 
 #include<glm/glm.hpp>
 #include<string>
+#include<cstdint>
+#include<cstddef>
 #include"Game/matchRules.hpp"
 
 //Player stores the actual gameplay state
@@ -50,10 +52,13 @@ struct PlayerInput{
     bool boost = false;
 };
 
-//visual feedback for an already calculated hitscan shot
-struct ShotTrace{
-    glm::vec2 start{0.0f, 0.0f};
-    glm::vec2 end{0.0f, 0.0f};
+//a real travelling bullet; damage is decided when its path reaches a hitbox
+struct Projectile{
+    std::uint32_t id = 0;
+    std::size_t owner = 0;
+    int team = 0;
+    glm::vec2 position{0.0f, 0.0f};
+    glm::vec2 direction{0.0f, 1.0f};
+    float remainingDistance = MatchRules::ShotRange;
     double firedAt = 0.0;
-    double expiresAt = 0.0;
 };

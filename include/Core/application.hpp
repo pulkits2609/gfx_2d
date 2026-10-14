@@ -35,8 +35,7 @@ class Application{
 
         PlayerInput ReadInput(
             GLFWwindow* nativeWindow,
-            float viewHalfWidth,
-            float viewHalfHeight
+            const ViewLayout& view
         );
 
         void DrawRectangle(

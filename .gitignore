@@ -53,3 +53,6 @@ venv/
 
 external/glad/build/
 external/glad/*.egg-info/
+
+# Local explanation and context notes
+docs/*.md

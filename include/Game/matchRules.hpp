@@ -1,4 +1,5 @@
 #pragma once
+#include<cstddef>
 
 //the arena is 3 units wide and 2 units high
 //all shapes share the same hitbox, including when they are rotated
@@ -27,9 +28,9 @@ namespace MatchRules{
     constexpr float ArenaHalfWidth = 1.5f;
     constexpr float ArenaHalfHeight = 1.0f;
     constexpr float ShotRange = 4.0f;
-    constexpr float TracerSpeed = 18.0f;
+    constexpr float ProjectileSpeed = 6.0f;
     constexpr float TracerLength = 0.12f;
-    constexpr double ShotTraceDuration = 0.04;
+    constexpr std::size_t MaximumProjectiles = 48;
 
     //local simulation runs independently of rendering
     constexpr double SimulationStep = 1.0 / 120.0;

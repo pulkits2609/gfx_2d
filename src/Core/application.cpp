@@ -66,36 +66,12 @@ void Application::GameLoop(){
             continue;
         }
 
-        glm::vec2 arenaHalfSize = game.GetArena().GetHalfSize();
-
-        //padding keeps walls and health bars visible
-        float viewHalfWidth = arenaHalfSize.x + 0.16f;
-        float viewHalfHeight = arenaHalfSize.y + 0.5f;
-
-        float aspectRatio = static_cast<float>(framebufferWidth)
-            / static_cast<float>(framebufferHeight);
-
-        if(aspectRatio >= viewHalfWidth / viewHalfHeight){
-            viewHalfWidth = viewHalfHeight * aspectRatio;
-        }
-        else{
-            viewHalfHeight = viewHalfWidth / aspectRatio;
-        }
-
-        glm::mat4 projection = glm::ortho(
-            -viewHalfWidth,
-            viewHalfWidth,
-            -viewHalfHeight,
-            viewHalfHeight,
-            -1.0f,
-            1.0f
-        );
-
-        PlayerInput input = ReadInput(
-            nativeWindow,
-            viewHalfWidth,
-            viewHalfHeight
-        );
+        int windowWidth, windowHeight;
+        glfwGetWindowSize(nativeWindow, &windowWidth, &windowHeight);
+        ViewLayout view = ViewLayout::Calculate(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
+        glm::mat4 projection = glm::ortho(-view.halfWidth, view.halfWidth,
+            -view.halfHeight, view.halfHeight, -1.0f, 1.0f);
+        PlayerInput input = ReadInput(nativeWindow, view);
 
         input.reload = pendingReload[selectedPlayer];
         accumulator += deltaTime;
@@ -114,10 +90,16 @@ void Application::GameLoop(){
         }
 
         renderer.Clear(0.025f, 0.03f, 0.04f, 1.0f);
+        float pixelX = static_cast<float>(framebufferWidth) / windowWidth;
+        float pixelY = static_cast<float>(framebufferHeight) / windowHeight;
+        glViewport(static_cast<int>(view.left * pixelX),
+            static_cast<int>((windowHeight - view.top - view.height) * pixelY),
+            static_cast<int>(view.width * pixelX), static_cast<int>(view.height * pixelY));
         DrawArena(projection);
         DrawPlayers(projection);
         DrawShots(projection);
-        hud.Draw(game, selectedPlayer, viewHalfWidth, viewHalfHeight, network.GetStatus());
+        glViewport(0, 0, framebufferWidth, framebufferHeight);
+        hud.Draw(game, selectedPlayer, view, network.GetStatus());
 
         //avoid rebuilding the native window title every frame
         if(currentTime >= nextTitleUpdate){
@@ -131,8 +113,7 @@ void Application::GameLoop(){
 
 PlayerInput Application::ReadInput(
     GLFWwindow* nativeWindow,
-    float viewHalfWidth,
-    float viewHalfHeight
+    const ViewLayout& view
 ){
     PlayerInput input;
 
@@ -178,22 +159,10 @@ PlayerInput Application::ReadInput(
     double cursorY;
     glfwGetCursorPos(nativeWindow, &cursorX, &cursorY);
 
-    //cursor coordinates use window units, not framebuffer pixels
-    float normalizedX = 2.0f * static_cast<float>(cursorX)
-        / static_cast<float>(windowWidth) - 1.0f;
-
-    float normalizedY = 1.0f - 2.0f * static_cast<float>(cursorY)
-        / static_cast<float>(windowHeight);
-
-    input.aimPosition = glm::vec2(
-        normalizedX * viewHalfWidth,
-        normalizedY * viewHalfHeight
-    );
-
+    input.aimPosition = view.ToWorld(static_cast<float>(cursorX), static_cast<float>(cursorY));
     input.hasAim = true;
-
-    bool cursorInside = cursorX >= 0.0 && cursorX <= windowWidth
-        && cursorY >= 0.0 && cursorY <= windowHeight;
+    bool cursorInside = cursorX >= view.left && cursorX <= view.left + view.width
+        && cursorY >= view.top && cursorY <= view.top + view.height;
 
     input.shoot = cursorInside
         && glfwGetMouseButton(nativeWindow, GLFW_MOUSE_BUTTON_LEFT)
@@ -309,23 +278,15 @@ void Application::DrawPlayers(const glm::mat4& projection){
 }
 
 void Application::DrawShots(const glm::mat4& projection){
-    for(const ShotTrace& shot : game.GetShots()){
-        if(shot.expiresAt <= game.GetTime()) continue;
-        glm::vec2 difference = shot.end - shot.start;
-        float distance = glm::length(difference);
-        if(distance <= 0.00001f) continue;
-        glm::vec2 direction = difference / distance;
-        float age = static_cast<float>(game.GetTime() - shot.firedAt);
-        float travelTime = distance / MatchRules::TracerSpeed;
-        float head = std::min(distance, age * MatchRules::TracerSpeed);
-        float tail = std::max(0.0f, head - MatchRules::TracerLength
-            + std::max(0.0f, age - travelTime) * MatchRules::TracerSpeed);
-        if(tail >= head) continue;
-        glm::vec2 centre = shot.start + direction * ((head + tail) * 0.5f);
-        float angle = std::atan2(direction.y, direction.x);
-        DrawRectangle(centre, glm::vec2(head - tail, 0.010f),
+    for(const Projectile& bullet : game.GetProjectiles()){
+        float age = static_cast<float>(game.GetTime() - bullet.firedAt);
+        float length = std::min(MatchRules::TracerLength, age * MatchRules::ProjectileSpeed);
+        if(length <= 0) continue;
+        glm::vec2 centre = bullet.position - bullet.direction * (length * 0.5f);
+        float angle = std::atan2(bullet.direction.y, bullet.direction.x);
+        DrawRectangle(centre, glm::vec2(length, 0.010f),
             glm::vec3(0.74f, 0.49f, 0.19f), projection, angle);
-        DrawRectangle(centre, glm::vec2(head - tail, 0.004f),
+        DrawRectangle(centre, glm::vec2(length, 0.004f),
             glm::vec3(1.0f, 0.91f, 0.66f), projection, angle);
     }
 }

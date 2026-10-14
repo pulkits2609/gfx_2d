@@ -49,14 +49,14 @@ glm::vec3 GameUI::TeamColor(int team){
 }
 
 void GameUI::Draw(const Game& game, std::size_t selectedPlayer,
-    float viewHalfWidth, float viewHalfHeight, const std::string& connectionStatus){
+    const ViewLayout& view, const std::string& connectionStatus){
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     ImVec2 screen = ImGui::GetIO().DisplaySize;
-    float scale = std::clamp(std::min(screen.x / 900.0f, screen.y / 650.0f), 0.5f, 2.5f);
+    float scale = view.scale;
     ImU32 paper = IM_COL32(233, 232, 221, 255);
     ImU32 muted = IM_COL32(148, 157, 160, 255);
     ImU32 panel = IM_COL32(18, 22, 26, 245);
@@ -101,9 +101,9 @@ void GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     for(std::size_t i = 0; i < game.GetPlayers().size(); i++){
         const Player& other = game.GetPlayers()[i];
         if(!other.IsAlive()) continue;
-        float x = (other.position.x / viewHalfWidth + 1.0f) * screen.x * 0.5f;
-        float y = (1.0f - (other.position.y + MatchRules::PlayerRadius + 0.035f)
-            / viewHalfHeight) * screen.y * 0.5f;
+        float x = view.left + (other.position.x / view.halfWidth + 1.0f) * view.width * 0.5f;
+        float y = view.top + (1.0f - (other.position.y + MatchRules::PlayerRadius + 0.035f)
+            / view.halfHeight) * view.height * 0.5f;
         std::string label = (i == selectedPlayer ? "> " : "") + other.name;
         ImVec2 size = regularFont->CalcTextSizeA(regularFont->FontSize * scale, 1000, 0, label.c_str());
         float left = std::clamp(x - size.x * 0.5f, 4.0f, std::max(4.0f, screen.x - size.x - 4));

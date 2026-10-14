@@ -2,6 +2,8 @@
 
 #include<array>
 #include<cstddef>
+#include<cstdint>
+#include<vector>
 #include"Game/arena.hpp"
 #include"Game/player.hpp"
 
@@ -15,13 +17,15 @@ class Game{
     private:
         Arena arena;
         std::array<Player, PlayerCount> players;
-        std::array<ShotTrace, PlayerCount> shots;
+        std::vector<Projectile> projectiles;
+        std::uint32_t nextProjectileId = 1;
         double elapsedTime = 0.0;
         int teamCount;
         std::array<int, 4> teamScores{};
 
         void Respawn(Player& player);
         void Fire(std::size_t shooterIndex);
+        void UpdateProjectiles(double deltaTime, const std::array<glm::vec2, PlayerCount>& oldPositions);
         void ResolveCollisions();
         glm::vec2 FindSpawnPosition(const Player& player) const;
         void UpdatePlayer(Player& player, const PlayerInput& input, double deltaTime);
@@ -53,8 +57,8 @@ class Game{
             return players;
         }
 
-        const std::array<ShotTrace, PlayerCount>& GetShots() const{
-            return shots;
+        const std::vector<Projectile>& GetProjectiles() const{
+            return projectiles;
         }
 
         double GetTime() const{
