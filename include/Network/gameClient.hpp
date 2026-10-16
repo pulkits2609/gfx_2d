@@ -5,6 +5,7 @@
 #include"Network/protocol.hpp"
 #include"Network/lobby.hpp"
 #include"Network/gameplayPackets.hpp"
+#include"Network/shotPreview.hpp"
 
 //Poll runs ready network callbacks without waiting, so drawing never blocks.
 class GameClient{
@@ -30,6 +31,7 @@ class GameClient{
         bool reloadPending = false;
         double inputAccumulator = 0, predictionTime = 0, lastSnapshotAt = 0, waitingSince = 0;
         Player predicted;
+        ShotPreview shotPreview;
         PlayerInput previewInput;
         glm::vec2 correction{0};
         Game renderedGame{2, false};

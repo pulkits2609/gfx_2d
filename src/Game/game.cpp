@@ -121,7 +121,7 @@ void Game::Update(double deltaTime, const std::array<PlayerInput, PlayerCount>& 
                 player.aimDirection = glm::normalize(direction);
             }
         }
-        if(inputs[i].shoot) Fire(i);
+        if(inputs[i].shoot) Fire(i, inputs[i].shotId);
     }
     UpdateProjectiles(deltaTime, oldPositions);
 }
@@ -236,8 +236,9 @@ bool Game::RayHitsPlayer(
 
 
 //Firing creates a bullet. Its later movement decides whether anybody is hit.
-void Game::Fire(std::size_t shooterIndex){
+void Game::Fire(std::size_t shooterIndex, std::uint32_t shotId){
     Player& shooter = players[shooterIndex];
+    if(shotId && static_cast<std::int32_t>(shotId - shooter.lastShotId) <= 0) return;
     if(!shooter.IsAlive() || shooter.IsSpawnProtected(elapsedTime)
         || shooter.reloading || shooter.ammunition <= 0
         || elapsedTime + MatchRules::TimerTolerance < shooter.nextShotTime
@@ -245,8 +246,10 @@ void Game::Fire(std::size_t shooterIndex){
 
     shooter.nextShotTime = elapsedTime + MatchRules::FireCooldown;
     shooter.ammunition--;
+    shooter.lastShotId = shotId;
     Projectile bullet;
     bullet.id = nextProjectileId++;
+    bullet.shotId = shotId;
     bullet.owner = shooterIndex;
     bullet.team = shooter.team;
     bullet.position = shooter.position;

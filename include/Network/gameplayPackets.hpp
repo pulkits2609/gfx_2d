@@ -16,6 +16,7 @@ namespace GameplayPackets{
     struct InputCommand{
         std::uint32_t sequence = 0;
         std::uint32_t reload = 0;
+        std::uint32_t shot = 0;
         PlayerInput input;
     };
     struct Snapshot{

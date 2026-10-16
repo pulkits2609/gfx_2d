@@ -43,7 +43,7 @@ try:
         udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp.settimeout(3)
         udp.connect(('127.0.0.1', welcome['gameplayPort']))
-        registration = b'G2' + bytes([1, 1]) + struct.pack('!Q', welcome['playerId']) + bytes.fromhex(welcome['sessionToken'])
+        registration = b'G2' + bytes([2, 1]) + struct.pack('!Q', welcome['playerId']) + bytes.fromhex(welcome['sessionToken'])
         udp.send(registration)
         assert udp.recv(1200) == registration[:3] + bytes([2]) + registration[4:]
         udp_clients.append(udp)

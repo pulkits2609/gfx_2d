@@ -508,6 +508,8 @@ void GameServer::Tick(){
                     auto command = session->inputs.front();
                     session->inputs.pop_front();
                     session->lastInput = command.input;
+                    session->lastInput.shotId = command.shot;
+                    session->lastInput.shoot = command.input.shoot && command.shot != 0;
                     session->lastInput.reload = GameplayPackets::Newer(command.reload, session->lastReload);
                     if(session->lastInput.reload) session->lastReload = command.reload;
                     session->lastProcessed = command.sequence;

@@ -31,7 +31,7 @@ namespace{
     Writer Header(GameplayPackets::Type type, const GameplayPackets::Identity& identity){
         if(identity.id == 0 || identity.token.size() != 64) throw std::invalid_argument("Invalid gameplay identity");
         Writer out;
-        out.U8('G'); out.U8('2'); out.U8(1); out.U8(static_cast<std::uint8_t>(type));
+        out.U8('G'); out.U8('2'); out.U8(2); out.U8(static_cast<std::uint8_t>(type));
         out.U64(identity.id);
         for(std::size_t i = 0; i < 64; i += 2) out.U8(static_cast<std::uint8_t>(std::stoul(identity.token.substr(i, 2), nullptr, 16)));
         return out;
@@ -50,7 +50,7 @@ std::vector<std::uint8_t> GameplayPackets::Inputs(const Identity& identity, std:
     out.U32(match);
     out.U8(static_cast<std::uint8_t>(commands.size()));
     for(const auto& command : commands){
-        out.U32(command.sequence); out.U32(command.reload);
+        out.U32(command.sequence); out.U32(command.reload); out.U32(command.shot);
         out.U8(static_cast<std::uint8_t>(static_cast<int>(command.input.movement.x) + 1));
         out.U8(static_cast<std::uint8_t>(static_cast<int>(command.input.movement.y) + 1));
         out.Vector(command.input.aimPosition);
@@ -75,6 +75,7 @@ std::vector<std::uint8_t> GameplayPackets::State(const Identity& identity, const
         out.U8(static_cast<std::uint8_t>(player.team));
         out.Vector(player.position); out.Float(std::atan2(player.aimDirection.y, player.aimDirection.x));
         out.U8(static_cast<std::uint8_t>(player.health)); out.U8(static_cast<std::uint8_t>(player.ammunition));
+        out.U32(player.lastShotId);
         out.Float(player.stamina);
         out.U8((player.reloading ? 1 : 0) | (player.boostExhausted ? 2 : 0) | (player.boosting ? 4 : 0));
         out.U16(static_cast<std::uint16_t>(player.kills)); out.U16(static_cast<std::uint16_t>(player.deaths));
@@ -84,9 +85,13 @@ std::vector<std::uint8_t> GameplayPackets::State(const Identity& identity, const
     }
     out.U8(static_cast<std::uint8_t>(snapshot.state.projectiles.size()));
     for(const auto& bullet : snapshot.state.projectiles){
-        out.U32(bullet.id); out.U8(static_cast<std::uint8_t>(bullet.owner)); out.U8(static_cast<std::uint8_t>(bullet.team));
-        out.Vector(bullet.position); out.Float(std::atan2(bullet.direction.y, bullet.direction.x));
-        out.Float(bullet.remainingDistance); out.Float(static_cast<float>(snapshot.state.time - bullet.firedAt));
+        out.U32(bullet.id); out.U32(bullet.shotId);
+        out.U8(static_cast<std::uint8_t>(bullet.owner)); out.U8(static_cast<std::uint8_t>(bullet.team));
+        out.Vector(bullet.position);
+        //Small measurements keep the largest snapshot below 1200 bytes.
+        out.U16(static_cast<std::uint16_t>((std::atan2(bullet.direction.y, bullet.direction.x) + 3.142f) * 10000));
+        out.U16(static_cast<std::uint16_t>(std::clamp(bullet.remainingDistance * 1000, 0.0f, 4000.0f)));
+        out.U16(static_cast<std::uint16_t>(std::clamp((snapshot.state.time - bullet.firedAt) * 1000, 0.0, 1000.0)));
     }
     if(out.bytes.size() > MaximumSize) throw std::length_error("Gameplay snapshot exceeds datagram limit");
     return out.bytes;
@@ -95,7 +100,7 @@ std::vector<std::uint8_t> GameplayPackets::State(const Identity& identity, const
 bool GameplayPackets::Decode(const std::uint8_t* bytes, std::size_t size, Packet& packet){
     if(size < 44 || size > MaximumSize) return false;
     Reader in{bytes, size};
-    if(in.U8() != 'G' || in.U8() != '2' || in.U8() != 1) return false;
+    if(in.U8() != 'G' || in.U8() != '2' || in.U8() != 2) return false;
     packet = Packet{};
     packet.type = static_cast<Type>(in.U8());
     packet.identity.id = in.U64();
@@ -108,7 +113,7 @@ bool GameplayPackets::Decode(const std::uint8_t* bytes, std::size_t size, Packet
         if(count == 0 || count > 4) return false;
         for(int i = 0; i < count; i++){
             InputCommand command;
-            command.sequence = in.U32(); command.reload = in.U32();
+            command.sequence = in.U32(); command.reload = in.U32(); command.shot = in.U32();
             auto x = in.U8(); auto y = in.U8();
             command.input.movement = {static_cast<int>(x) - 1, static_cast<int>(y) - 1};
             command.input.aimPosition = in.Vector();
@@ -135,7 +140,7 @@ bool GameplayPackets::Decode(const std::uint8_t* bytes, std::size_t size, Packet
             player.active = true; player.id = in.U64(); player.team = in.U8();
             player.position = in.Vector(); float angle = in.Float();
             player.aimDirection = {std::cos(angle), std::sin(angle)};
-            player.health = in.U8(); player.ammunition = in.U8(); player.stamina = in.Float();
+            player.health = in.U8(); player.ammunition = in.U8(); player.lastShotId = in.U32(); player.stamina = in.Float();
             auto flags = in.U8();
             player.reloading = (flags & 1) != 0; player.boostExhausted = (flags & 2) != 0; player.boosting = (flags & 4) != 0;
             player.kills = in.U16(); player.deaths = in.U16();
@@ -153,9 +158,11 @@ bool GameplayPackets::Decode(const std::uint8_t* bytes, std::size_t size, Packet
         if(count > MatchRules::MaximumProjectiles) return false;
         for(int i = 0; i < count; i++){
             Projectile bullet;
-            bullet.id = in.U32(); bullet.owner = in.U8(); bullet.team = in.U8(); bullet.position = in.Vector();
-            float angle = in.Float(); bullet.direction = {std::cos(angle), std::sin(angle)};
-            bullet.remainingDistance = in.Float(); float age = in.Float(); bullet.firedAt = snap.state.time - age;
+            bullet.id = in.U32(); bullet.shotId = in.U32();
+            bullet.owner = in.U8(); bullet.team = in.U8(); bullet.position = in.Vector();
+            float angle = in.U16() / 10000.0f - 3.142f; bullet.direction = {std::cos(angle), std::sin(angle)};
+            bullet.remainingDistance = in.U16() / 1000.0f;
+            float age = in.U16() / 1000.0f; bullet.firedAt = snap.state.time - age;
             if(bullet.owner >= Game::PlayerCount || bullet.team >= snap.state.teams || !Position(bullet.position, 2)
                 || bullet.remainingDistance < 0 || bullet.remainingDistance > MatchRules::ShotRange
                 || age < 0 || age > 1 || std::abs(angle) > 3.142f) return false;

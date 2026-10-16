@@ -33,7 +33,7 @@ class Game{
         std::array<int, 4> teamScores{};
 
         void Respawn(Player& player);
-        void Fire(std::size_t shooterIndex);
+        void Fire(std::size_t shooterIndex, std::uint32_t shotId);
         void UpdateProjectiles(double deltaTime, const std::array<glm::vec2, PlayerCount>& oldPositions);
         void ResolveCollisions();
         glm::vec2 FindSpawnPosition(const Player& player) const;

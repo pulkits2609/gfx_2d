@@ -299,6 +299,7 @@ void GameClient::ReceiveGameplay(){
 
 void GameClient::ResetGameplay(){
     hasSnapshot = false;
+    shotPreview.Reset();
     latest = {};
     snapshots.clear();
     pendingInputs.clear();
@@ -343,6 +344,7 @@ void GameClient::AcceptSnapshot(GameplayPackets::Snapshot snapshot){
     correction = sameLife ? oldPosition - preview.position : glm::vec2(0);
     if(glm::length(correction) > 0.25f) correction = {0, 0};
     ownSlot = slot;
+    shotPreview.Reconcile(snapshot, slot, Now());
     latest = std::move(snapshot);
     snapshots.push_back(latest);
     if(snapshots.size() > 32) snapshots.pop_front();
@@ -358,6 +360,11 @@ void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
     if(age > 5){ Fail("Gameplay snapshots timed out"); return; }
     if(age > 1){ status = "WAITING FOR GAMEPLAY SNAPSHOTS"; return; }
     reloadPending = reloadPending || input.reload;
+    if(!latest.finished){
+        Player shooter = predicted;
+        Game::PredictMovement(shooter, input, inputAccumulator, predictionTime + inputAccumulator);
+        shotPreview.Update(shooter, input, ownSlot, predictionTime + inputAccumulator, Now());
+    }
     inputAccumulator += std::clamp(deltaTime, 0.0, 0.25);
     while(inputAccumulator + 0.000001 >= MatchRules::ServerStep && !latest.finished){
         if(pendingInputs.size() >= 128){ Fail("Server stopped acknowledging inputs"); return; }
@@ -365,6 +372,7 @@ void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
         command.sequence = ++sequence;
         if(reloadPending){ ++reloadCounter; reloadPending = false; }
         command.reload = reloadCounter;
+        command.shot = shotPreview.GetRequest();
         command.input = input;
         command.input.reload = false;
         pendingInputs.push_back(command);
@@ -426,5 +434,6 @@ void GameClient::RenderGameplay(double deltaTime, const PlayerInput& input){
     correction *= std::exp(-18.0f * static_cast<float>(std::clamp(deltaTime, 0.0, 0.25)));
     local.position = Arena().ClampPosition(local.position + correction, MatchRules::PlayerRadius);
     display.players[ownSlot] = local;
+    shotPreview.Draw(display, ownSlot, Now());
     renderedGame.ApplyState(display);
 }

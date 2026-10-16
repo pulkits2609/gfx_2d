@@ -23,6 +23,7 @@ struct Player{
     int kills = 0;
     int deaths = 0;
     int ammunition = MatchRules::MagazineSize;
+    std::uint32_t lastShotId = 0;
     float stamina = MatchRules::MaximumStamina;
     bool reloading = false;
     bool boostExhausted = false;
@@ -52,11 +53,13 @@ struct PlayerInput{
     bool shoot = false;
     bool reload = false;
     bool boost = false;
+    std::uint32_t shotId = 0; //zero keeps offline hold-to-fire behaviour
 };
 
 //a real travelling bullet; damage is decided when its path reaches a hitbox
 struct Projectile{
     std::uint32_t id = 0;
+    std::uint32_t shotId = 0; //matches the shooter's local visual with the server shot
     std::size_t owner = 0;
     int team = 0;
     glm::vec2 position{0.0f, 0.0f};

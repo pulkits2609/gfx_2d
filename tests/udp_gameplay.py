@@ -23,7 +23,7 @@ def receive(sock):
 
 
 def snapshot(data):
-    assert len(data) <= 1200 and data[:4] == b'G2\x01\x04'
+    assert len(data) <= 1200 and data[:4] == b'G2\x02\x04'
     cursor = 44
 
     def read(fmt):
@@ -36,12 +36,12 @@ def snapshot(data):
     scores = read('4H')
     players = {}
     for _ in range(read('B')):
-        slot, identity, team, x, y, angle, hp, ammo, stamina, flags = read('BQBfffBBfB')
+        slot, identity, team, x, y, angle, hp, ammo, shot_id, stamina, flags = read('BQBfffBBIfB')
         kills, deaths, reload, respawn, protection, recovery, cooldown = read('7H')
         players[identity] = dict(slot=slot, team=team, x=x, y=y, hp=hp, ammo=ammo,
                                  stamina=stamina, flags=flags, kills=kills, deaths=deaths)
     bullets = read('B')
-    assert cursor + bullets * 26 == len(data)
+    assert cursor + bullets * 24 == len(data)
     return dict(match=match, tick=tick, ack=ack, time=elapsed, remaining=remaining,
                 finished=finished, players=players, bullets=bullets, scores=scores)
 
@@ -59,8 +59,9 @@ try:
             self.udp.settimeout(2)
             welcome = self.control('hello', name=name)
             self.id = welcome['playerId']
-            self.prefix = b'G2\x01' + bytes([1]) + struct.pack('!Q', self.id) + bytes.fromhex(welcome['sessionToken'])
+            self.prefix = b'G2\x02' + bytes([1]) + struct.pack('!Q', self.id) + bytes.fromhex(welcome['sessionToken'])
             self.udp.connect(('127.0.0.1', welcome['gameplayPort']))
+            self.shot = 0
             self.seq = 0
             self.match = 0
 
@@ -80,7 +81,9 @@ try:
             if sequence is None:
                 self.seq += 1
                 sequence = self.seq
-            body = struct.pack('!IBIIBBffB', self.match, 1, sequence, reload, x + 1, y + 1, *aim, flags)
+            if flags & 2:
+                self.shot += 1
+            body = struct.pack('!IBIIIBBffB', self.match, 1, sequence, reload, self.shot, x + 1, y + 1, *aim, flags)
             packet = (prefix or self.prefix)[:3] + bytes([3]) + (prefix or self.prefix)[4:] + body
             (sock or self.udp).send(packet)
             return packet
@@ -88,7 +91,7 @@ try:
         def state(self):
             while True:
                 data = self.udp.recv(1201)
-                if data[:4] == b'G2\x01\x04':
+                if data[:4] == b'G2\x02\x04':
                     result = snapshot(data)
                     if select.select([self.udp], [], [], 0)[0]:
                         continue
