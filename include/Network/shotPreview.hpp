@@ -13,6 +13,7 @@ class ShotPreview{
         std::vector<Visual> visuals;
         std::uint32_t request = 0, accepted = 0;
         double nextFire = 0, reloadBlock = 0;
+        glm::vec2 lastAim{0};
 
     public:
         void Reset();
@@ -21,4 +22,5 @@ class ShotPreview{
         void Draw(Game::State& display, std::size_t slot, double now) const;
         int Ammunition(int serverAmmo) const;
         std::uint32_t GetRequest() const{ return request; }
+        glm::vec2 GetAim() const{ return lastAim; }
 };

@@ -30,6 +30,8 @@ void GameClient::Connect(const std::string& host, unsigned short port, const std
         throw std::invalid_argument("Invalid server address, port or player name");
     started = true;
     name = displayName;
+    serverHost = host;
+    serverPort = port;
     state = State::Connecting;
     status = "CONNECTING TCP";
     SetDeadline(5);
@@ -56,6 +58,11 @@ void GameClient::Poll(){
 }
 
 void GameClient::Disconnect(){
+    if(lobby.is_object() && lobby["playing"].get<bool>() && lobby["hostId"] != playerId
+        && hasSnapshot && !latest.finished){
+        RememberRejoin(rejoinToken, lobby["code"].get<std::string>(),
+            latest.remaining - std::max(0.0, Now() - lastSnapshotAt));
+    }
     state = State::Offline;
     ErrorCode ignored;
     resolver.cancel();
@@ -140,6 +147,9 @@ void GameClient::HandleMessage(){
             return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
         })){ Fail("Invalid session token"); return; }
         playerId = message["playerId"].get<std::uint64_t>();
+        if(!message.contains("rejoinToken") || !message["rejoinToken"].is_string()
+            || message["rejoinToken"].get_ref<const std::string&>().size() != 64){ Fail("Invalid rejoin token"); return; }
+        rejoinToken = message["rejoinToken"].get<std::string>();
         if(!message.contains("gameplayPort") || !message["gameplayPort"].is_number_unsigned()
             || message["gameplayPort"] == 0 || message["gameplayPort"] > 65535){ Fail("Invalid gameplay port"); return; }
         state = State::Connected;
@@ -149,6 +159,19 @@ void GameClient::HandleMessage(){
         SendPing();
         Send(Protocol::Message("players"));
         StartHeartbeat();
+    }
+    else if(type == "rejoin_available"){
+        if(!message.contains("token") || !message["token"].is_string() || message["token"] != rejoinToken
+            || !message.contains("code") || !message["code"].is_string()
+            || !LobbyRules::ValidCode(message["code"].get<std::string>())
+            || !message.contains("remaining") || !message["remaining"].is_number()){
+            Fail("Invalid rejoin offer"); return;
+        }
+        RememberRejoin(rejoinToken, message["code"].get<std::string>(), message["remaining"].get<double>());
+    }
+    else if(type == "rejoin_denied"){
+        rejoin = {};
+        notice = message.value("message", std::string("Rejoining is no longer available"));
     }
     else if(type == "match_results"){
         if(!lobby.is_object() || !message.contains("match") || message["match"] != lobby["match"]
@@ -200,6 +223,8 @@ void GameClient::HandleMessage(){
         if(!message["playing"].get<bool>() || !lobby.is_object() || lobby.value("match", 0u) != message["match"].get<std::uint32_t>())
             ResetGameplay();
         lobby = std::move(message);
+        rejoin = {};
+        if(!lobby["playing"].get<bool>()) status = "CONNECTED / LOBBY";
         if(lobby["playing"].get<bool>() && !hasSnapshot && waitingSince == 0){
             waitingSince = Now();
             status = "MATCH STARTING / WAITING FOR SNAPSHOTS";
@@ -209,6 +234,7 @@ void GameClient::HandleMessage(){
     else if(type == "lobby_left" || type == "lobby_closed"){
         lobby = nullptr;
         ResetGameplay();
+        status = RejoinSecondsLeft() > 0 ? "CONNECTED / REJOIN AVAILABLE" : "CONNECTED / HOME";
         notice = message.value("message", std::string());
     }
     else if(type == "pong"){
@@ -324,7 +350,7 @@ void GameClient::ResetGameplay(){
     latest = {};
     snapshots.clear();
     pendingInputs.clear();
-    sequence = reloadCounter = 0;
+    sequence = reloadCounter = lastSentShot = 0;
     inputAccumulator = predictionTime = 0;
     waitingSince = 0;
     reloadPending = false;
@@ -395,6 +421,12 @@ void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
         command.reload = reloadCounter;
         command.shot = shotPreview.GetRequest();
         command.input = input;
+        if(GameplayPackets::Newer(command.shot, lastSentShot)){
+            //A click released between two 30 Hz input ticks still needs to reach the server.
+            command.input.shoot = command.input.hasAim = true;
+            command.input.aimPosition = shotPreview.GetAim();
+            lastSentShot = command.shot;
+        }
         command.input.reload = false;
         pendingInputs.push_back(command);
         //Repeat the last four commands. Sequence numbers make duplicates harmless,
@@ -457,4 +489,18 @@ void GameClient::RenderGameplay(double deltaTime, const PlayerInput& input){
     display.players[ownSlot] = local;
     shotPreview.Draw(display, ownSlot, Now());
     renderedGame.ApplyState(display);
+}
+
+void GameClient::RememberRejoin(const std::string& token, const std::string& code, double remaining){
+    if(token.empty() || !LobbyRules::CanRejoin(0, remaining, false)) return;
+    rejoin = {token, code, serverHost, name, serverPort, Now(), remaining};
+}
+
+double GameClient::RejoinSecondsLeft() const{ return rejoin.SecondsLeft(Now()); }
+
+void GameClient::RejoinMatch(){
+    if(RejoinSecondsLeft() <= 0){ notice = "The rejoin window has expired or fewer than 2 minutes remain"; return; }
+    auto message = Protocol::Message("rejoin_match");
+    message["token"] = rejoin.token;
+    Send(message);
 }

@@ -19,6 +19,7 @@ void ShotPreview::Update(const Player& player, const PlayerInput& input, std::si
     glm::vec2 direction = input.aimPosition - player.position;
     if(glm::length(direction) < 0.00001f) return;
     nextFire = now + MatchRules::FireCooldown;
+    lastAim = input.aimPosition;
     Visual visual;
     visual.started = now;
     visual.bullet.shotId = ++request;

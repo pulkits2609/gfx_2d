@@ -25,6 +25,9 @@ Window::Window(int width, int height, const std::string& windowName):window(null
         std::cout<<"Window Created Successfully\n";
     }
     glfwSetWindowSizeLimits(window, 960, 640, GLFW_DONT_CARE, GLFW_DONT_CARE);
+    //Remember a quick tap until the next frame reads it.
+    glfwSetInputMode(window, GLFW_STICKY_KEYS, GLFW_TRUE);
+    glfwSetInputMode(window, GLFW_STICKY_MOUSE_BUTTONS, GLFW_TRUE);
 
     //forgot about make Context current bruh, it should be done immediately after window creation, NOTE TO YOURSELF 
     glfwMakeContextCurrent(window);

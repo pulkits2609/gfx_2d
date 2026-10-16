@@ -1,6 +1,6 @@
 #pragma once
 
-#include"Network/protocol.hpp"
+#include<string>
 #include<algorithm>
 #include<cctype>
 
@@ -8,6 +8,12 @@ namespace LobbyRules{
     constexpr int MinimumMinutes = 1;
     constexpr int MaximumMinutes = 30;
     constexpr int DefaultMinutes = 5;
+    constexpr double RejoinWindow = 60;
+    constexpr double MinimumRejoinTime = 120;
+
+    inline bool CanRejoin(double secondsAway, double remaining, bool finished){
+        return !finished && secondsAway >= 0 && secondsAway < RejoinWindow && remaining >= MinimumRejoinTime;
+    }
 
     inline int PlayersPerTeam(int teams){ return teams == 2 ? 4 : teams == 3 ? 3 : 2; }
 

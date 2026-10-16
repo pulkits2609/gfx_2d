@@ -17,6 +17,7 @@ int main(int argc, char* argv[]){
         bool requested = false, printed = false, sawTwo = false;
         bool localMoved = false, remoteMoved = false;
         bool checkedPrediction = false;
+        bool tappedFire = false;
         glm::vec2 localStart{0}, remoteStart{0};
         double playingFor = 0;
         while(std::chrono::steady_clock::now() - start < std::chrono::seconds(12)){
@@ -43,6 +44,13 @@ int main(int argc, char* argv[]){
                 PlayerInput input;
                 input.movement = {0, playingFor < 0.6 ? (host ? -1.0f : 1.0f) : 0.0f};
                 input.boost = true;
+                if(playingFor > 1.25 && !tappedFire){
+                    PlayerInput tap;
+                    tap.shoot = tap.hasAim = true;
+                    tap.aimPosition = host ? glm::vec2(-1.5f, 1) : glm::vec2(1.5f, -1);
+                    client.UpdateGameplay(0, tap); //release before a complete input tick
+                    tappedFire = true;
+                }
                 if(!checkedPrediction){
                     client.UpdateGameplay(0, input);
                     glm::vec2 before = client.GetGame().GetPlayers()[client.GetOwnSlot()].position;
@@ -68,6 +76,8 @@ int main(int argc, char* argv[]){
                     remoteMoved = remoteMoved || glm::length(remote->position - remoteStart) > 0.05f;
                 }
                 if(playingFor > 2.0 && sawTwo && localMoved && remoteMoved){
+                    if(players[client.GetOwnSlot()].lastShotId == 0)
+                        throw std::runtime_error("Quick click was lost before reaching the server");
                     Protocol::Json positions = Protocol::Json::array();
                     for(const auto& player : players) if(player.active)
                         positions.push_back({{"id", player.id}, {"x", player.position.x}, {"y", player.position.y}});

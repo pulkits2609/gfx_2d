@@ -50,6 +50,7 @@ class Game{
         explicit Game(int numberOfTeams = 4, bool localPractice = true);
         bool AddPlayer(std::uint64_t id, const std::string& name, int team);
         void RemovePlayer(std::uint64_t id);
+        bool ResumePlayer(std::uint64_t oldId, std::uint64_t newId);
         State GetState() const;
         void ApplyState(const State& state);
         static void PredictMovement(Player& player, const PlayerInput& input, double deltaTime, double time);

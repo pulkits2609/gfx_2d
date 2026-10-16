@@ -1,4 +1,5 @@
 #include"Game/game.hpp"
+#include"Network/rejoinInfo.hpp"
 #include<iostream>
 #include<stdexcept>
 
@@ -51,6 +52,21 @@ int main(){
         Check(winner.GetWinningTeam() == -1, "tie at the top is a draw");
         state.scores = {}; winner.ApplyState(state);
         Check(winner.GetWinningTeam() == -1, "scoreless match is a draw");
+        auto resume = ArenaGame(); state = resume.GetState();
+        state.players[1].kills = 3; state.players[1].deaths = 2; resume.ApplyState(state);
+        resume.RemovePlayer(2);
+        Check(!resume.GetPlayers()[1].IsAlive(), "disconnected player cannot be hit");
+        Check(resume.ResumePlayer(2, 99) && !resume.GetPlayers()[1].IsAlive(), "rejoin waits for respawn");
+        Check(resume.GetPlayers()[1].team == 1 && resume.GetPlayers()[1].kills == 3
+            && resume.GetPlayers()[1].deaths == 2, "rejoin keeps team and stats");
+        Tick(resume, 91);
+        Check(resume.GetPlayers()[1].IsAlive() && resume.GetPlayers()[1].IsSpawnProtected(resume.GetTime()), "rejoin respawn is protected");
+        Check(LobbyRules::CanRejoin(59.99, 120, false), "exactly two minutes remains eligible");
+        Check(!LobbyRules::CanRejoin(60, 180, false), "sixty-second window expires");
+        Check(!LobbyRules::CanRejoin(10, 119.99, false), "cutoff is rechecked during the window");
+        Check(!LobbyRules::CanRejoin(1, 180, true), "finished match cannot be rejoined");
+        RejoinInfo info; info.token = "private"; info.offeredAt = 10; info.remaining = 125;
+        Check(info.SecondsLeft(12) == 3 && info.SecondsLeft(16) == 0, "home timer also respects two-minute cutoff");
         std::cout << "Combat authority and result checks passed\n";
     }
     catch(const std::exception& error){ std::cerr << error.what() << '\n'; return 1; }

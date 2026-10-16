@@ -50,6 +50,8 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
         udp::endpoint gameplayEndpoint;
         std::deque<GameplayPackets::InputCommand> inputs;
         PlayerInput lastInput;
+        GameplayPackets::InputCommand pendingShot;
+        std::chrono::steady_clock::time_point shotTime{};
         std::uint32_t lastReceived = 0, lastProcessed = 0, lastReload = 0;
         std::chrono::steady_clock::time_point inputTime{};
         std::chrono::steady_clock::time_point udpRateWindow{};
@@ -57,6 +59,7 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
         std::uint64_t id;
         std::string name;
         std::string sessionToken;
+        std::string rejoinToken;
         bool closed = false;
         bool welcomed = false;
         unsigned messagesThisSecond = 0;
@@ -144,6 +147,8 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
                 try{
                     sessionToken = MakeSessionToken();
                     response["sessionToken"] = sessionToken;
+                    rejoinToken = MakeSessionToken();
+                    response["rejoinToken"] = rejoinToken;
                 }
                 catch(const std::exception&){ Reject("Could not create session"); return; }
                 response["name"] = name;
@@ -259,12 +264,19 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
     auto session = sessions.at(id);
     std::string type = message["type"].get<std::string>();
     if(type != "create_lobby" && type != "join_lobby" && type != "choose_team"
-        && type != "start_match" && type != "leave_lobby" && type != "return_lobby") return false;
+        && type != "start_match" && type != "leave_lobby" && type != "return_lobby" && type != "rejoin_match") return false;
     auto reject = [&](const std::string& reason){
         auto response = Protocol::Message("notice");
         response["message"] = reason;
         session->Send(response);
     };
+    if(type == "rejoin_match"){
+        if(!message.contains("token") || !message["token"].is_string() || message["token"].get_ref<const std::string&>().size() != 64){
+            reject("Invalid rejoin ticket"); return true;
+        }
+        RejoinMatch(id, message["token"].get<std::string>());
+        return true;
+    }
     if(type == "leave_lobby"){
         LeaveLobby(id);
         session->Send(Protocol::Message("lobby_left"));
@@ -291,6 +303,7 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
         lobby.teams = message["teams"].get<int>();
         lobby.minutes = message["minutes"].get<int>();
         lobby.members.push_back({id, session->name, 0});
+        reservations.erase(session->rejoinToken);
         session->lobbyCode = lobby.code;
         auto inserted = lobbies.emplace(lobby.code, std::move(lobby));
         BroadcastLobby(inserted.first->second);
@@ -316,6 +329,7 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
         for(const auto& member : lobby.members) counts[member.team]++;
         int team = static_cast<int>(std::min_element(counts.begin(), counts.begin() + lobby.teams) - counts.begin());
         lobby.members.push_back({id, session->name, team});
+        reservations.erase(session->rejoinToken);
         session->lobbyCode = code;
         BroadcastLobby(lobby);
         return true;
@@ -328,6 +342,8 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
         lobby.playing = false;
         lobby.finished = false;
         lobby.game.reset();
+        lobby.members.erase(std::remove_if(lobby.members.begin(), lobby.members.end(),
+            [](const LobbyMember& member){ return !member.connected; }), lobby.members.end());
         BroadcastLobby(lobby);
         return true;
     }
@@ -361,8 +377,9 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
             auto other = sessions.at(member.playerId);
             other->inputs.clear();
             other->lastInput = {};
+            other->pendingShot = {};
             other->lastReceived = other->lastProcessed = other->lastReload = 0;
-            other->inputTime = {};
+            other->inputTime = std::chrono::steady_clock::now();
         }
         lobby.match = nextMatch++;
         lobby.tick = 0;
@@ -384,12 +401,12 @@ void GameServer::BroadcastLobby(const Lobby& lobby){
     message["match"] = lobby.match;
     message["members"] = Protocol::Json::array();
     for(const auto& member : lobby.members)
-        message["members"].push_back({{"playerId", member.playerId}, {"name", member.name}, {"team", member.team}});
+        message["members"].push_back({{"playerId", member.playerId}, {"name", member.name}, {"team", member.team}, {"connected", member.connected}});
     //Copy recipients: a slow client's full queue may close it and change the lobby.
     std::vector<std::shared_ptr<ControlSession>> recipients;
     for(const auto& member : lobby.members){
         auto found = sessions.find(member.playerId);
-        if(found != sessions.end()) recipients.push_back(found->second);
+        if(member.connected && found != sessions.end()) recipients.push_back(found->second);
     }
     for(const auto& recipient : recipients) recipient->Send(message);
 }
@@ -406,7 +423,7 @@ void GameServer::LeaveLobby(std::uint64_t id){
         lobbies.erase(room);
         for(const auto& member : members){
             auto other = sessions.find(member.playerId);
-            if(other == sessions.end() || member.playerId == id) continue;
+            if(other == sessions.end() || member.playerId == id || other->second->lobbyCode != code) continue;
             other->second->lobbyCode.clear();
             auto closed = Protocol::Message("lobby_closed");
             closed["message"] = "The host left the lobby";
@@ -414,11 +431,89 @@ void GameServer::LeaveLobby(std::uint64_t id){
         }
     }
     else{
-        if(room->second.game) room->second.game->RemovePlayer(id);
-        auto& members = room->second.members;
-        members.erase(std::remove_if(members.begin(), members.end(),
-            [id](const LobbyMember& player){ return player.playerId == id; }), members.end());
-        BroadcastLobby(room->second);
+        Lobby& lobby = room->second;
+        if(lobby.playing && !lobby.finished && running){
+            auto member = std::find_if(lobby.members.begin(), lobby.members.end(),
+                [id](const LobbyMember& player){ return player.playerId == id; });
+            if(member == lobby.members.end()) return;
+            member->connected = false;
+            lobby.game->RemovePlayer(id);
+            double remaining = lobby.minutes * 60.0 - lobby.game->GetTime();
+            if(LobbyRules::CanRejoin(0, remaining, false)){
+                reservations[found->second->rejoinToken] = {code, id, std::chrono::steady_clock::now()};
+                auto offer = Protocol::Message("rejoin_available");
+                offer["token"] = found->second->rejoinToken;
+                offer["code"] = code;
+                offer["remaining"] = remaining;
+                offer["seconds"] = LobbyRules::RejoinWindow;
+                found->second->Send(offer);
+            }
+        }
+        else{
+            auto& members = lobby.members;
+            members.erase(std::remove_if(members.begin(), members.end(),
+                [id](const LobbyMember& player){ return player.playerId == id; }), members.end());
+        }
+        BroadcastLobby(lobby);
+    }
+    ExpireReservations();
+}
+
+bool GameServer::RejoinMatch(std::uint64_t id, const std::string& token){
+    auto session = sessions.at(id);
+    auto deny = [&](const std::string& reason){
+        auto response = Protocol::Message("rejoin_denied"); response["message"] = reason; session->Send(response);
+    };
+    if(!session->lobbyCode.empty()){ deny("Leave the current lobby before rejoining"); return false; }
+    if(!session->udpReady){
+        auto response = Protocol::Message("notice"); response["message"] = "Waiting for the gameplay connection"; session->Send(response); return false;
+    }
+    auto ticket = reservations.find(token);
+    if(ticket == reservations.end()){ deny("This rejoin window has expired or the host ended the match"); return false; }
+    auto room = lobbies.find(ticket->second.code);
+    double away = std::chrono::duration<double>(std::chrono::steady_clock::now() - ticket->second.leftAt).count();
+    if(room == lobbies.end() || !room->second.playing || !room->second.game
+        || !LobbyRules::CanRejoin(away, room->second.minutes * 60.0 - room->second.game->GetTime(), room->second.finished)){
+        reservations.erase(ticket);
+        deny("Cannot rejoin: the minute expired, the match ended, or fewer than 2 minutes remain"); return false;
+    }
+    Lobby& lobby = room->second;
+    auto member = std::find_if(lobby.members.begin(), lobby.members.end(), [&](const LobbyMember& player){
+        return player.playerId == ticket->second.playerId && !player.connected;
+    });
+    if(member == lobby.members.end() || !lobby.game->ResumePlayer(ticket->second.playerId, id)){
+        deny("The reserved player could not be restored"); return false;
+    }
+    session->name = member->name;
+    member->playerId = id;
+    member->connected = true;
+    session->lobbyCode = lobby.code;
+    session->inputs.clear(); session->lastInput = {}; session->pendingShot = {};
+    session->lastReceived = session->lastProcessed = session->lastReload = 0;
+    session->inputTime = std::chrono::steady_clock::now();
+    reservations.erase(ticket); //consume this reservation; a later leave starts a new window
+    BroadcastLobby(lobby);
+    return true;
+}
+
+void GameServer::ExpireReservations(){
+    auto now = std::chrono::steady_clock::now();
+    std::vector<std::shared_ptr<ControlSession>> expired;
+    for(auto ticket = reservations.begin(); ticket != reservations.end();){
+        auto room = lobbies.find(ticket->second.code);
+        double away = std::chrono::duration<double>(now - ticket->second.leftAt).count();
+        bool allowed = room != lobbies.end() && room->second.playing && room->second.game
+            && LobbyRules::CanRejoin(away, room->second.minutes * 60.0 - room->second.game->GetTime(), room->second.finished);
+        if(allowed){ ++ticket; continue; }
+        auto previous = sessions.find(ticket->second.playerId);
+        ticket = reservations.erase(ticket);
+        if(previous != sessions.end()) expired.push_back(previous->second);
+    }
+    //Send after iteration because closing a slow connection can change the rooms.
+    for(const auto& session : expired){
+        auto response = Protocol::Message("rejoin_denied");
+        response["message"] = "Rejoin is no longer available: the window expired, less than 2 minutes remain, or the host left";
+        session->Send(response);
     }
 }
 
@@ -469,6 +564,10 @@ void GameServer::HandleGameplay(std::size_t size){
         session->inputs.push_back(command);
         session->lastReceived = command.sequence;
         session->inputTime = now;
+        if(command.input.shoot && GameplayPackets::Newer(command.shot, session->pendingShot.shot)){
+            session->pendingShot = command;
+            session->shotTime = now;
+        }
     }
 }
 
@@ -487,6 +586,7 @@ void GameServer::ScheduleTick(){
 
 void GameServer::Tick(){
     auto now = std::chrono::steady_clock::now();
+    std::vector<std::shared_ptr<ControlSession>> disconnected;
     for(auto& entry : lobbies){
         Lobby& lobby = entry.second;
         if(!lobby.playing || !lobby.game) continue;
@@ -499,6 +599,10 @@ void GameServer::Tick(){
                 auto found = sessions.find(players[i].id);
                 if(found == sessions.end()) continue;
                 auto session = found->second;
+                if(now - session->inputTime > std::chrono::seconds(5)){
+                    disconnected.push_back(session);
+                    continue;
+                }
                 session->lastInput.reload = false;
                 if(now - session->inputTime > std::chrono::duration<double>(MatchRules::InputTimeout)){
                     session->lastInput = {};
@@ -515,6 +619,14 @@ void GameServer::Tick(){
                     session->lastProcessed = command.sequence;
                 }
                 inputs[i] = session->lastInput;
+                //Keep a quick click through the next valid firing tick; a release
+                //packet must not erase it just because the cooldown has a few ms left.
+                if(GameplayPackets::Newer(session->pendingShot.shot, players[i].lastShotId)
+                    && now - session->shotTime < std::chrono::milliseconds(250)){
+                    inputs[i].shoot = inputs[i].hasAim = true;
+                    inputs[i].shotId = session->pendingShot.shot;
+                    inputs[i].aimPosition = session->pendingShot.input.aimPosition;
+                }
             }
             double remaining = lobby.minutes * 60.0 - lobby.game->GetTime();
             lobby.game->Update(std::min(MatchRules::ServerStep, remaining), inputs);
@@ -527,6 +639,8 @@ void GameServer::Tick(){
             SendSnapshots(lobby);
         }
     }
+    for(const auto& session : disconnected) session->Close();
+    ExpireReservations();
 }
 
 void GameServer::SendSnapshots(Lobby& lobby){
@@ -539,7 +653,7 @@ void GameServer::SendSnapshots(Lobby& lobby){
     snapshot.finished = lobby.finished;
     for(const auto& member : lobby.members){
         auto found = sessions.find(member.playerId);
-        if(found == sessions.end() || !found->second->udpReady) continue;
+        if(!member.connected || found == sessions.end() || !found->second->udpReady) continue;
         auto session = found->second;
         snapshot.acknowledged = session->lastProcessed;
         SendDatagram(GameplayPackets::State({session->id, session->sessionToken}, snapshot), session->gameplayEndpoint);
@@ -560,7 +674,8 @@ void GameServer::SendResults(const Lobby& lobby){
     std::vector<std::shared_ptr<ControlSession>> recipients;
     for(const auto& member : lobby.members){
         auto found = sessions.find(member.playerId);
-        if(found != sessions.end()) recipients.push_back(found->second);
+        if(member.connected && found != sessions.end()) recipients.push_back(found->second);
     }
-    for(const auto& recipient : recipients) recipient->Send(result);
+    for(const auto& recipient : recipients)
+        boost::asio::post(context, [recipient, result]{ recipient->Send(result); });
 }

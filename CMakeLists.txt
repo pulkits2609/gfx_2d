@@ -165,6 +165,8 @@ if(BUILD_TESTING)
     add_test(NAME shot_preview COMMAND shot_preview_tests)
     add_executable(gameplay_test_client tests/gameplay_client.cpp)
     target_link_libraries(gameplay_test_client PRIVATE gfx_network)
+    add_executable(rejoin_test_client tests/rejoin_client.cpp)
+    target_link_libraries(rejoin_test_client PRIVATE gfx_network)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_test(NAME tcp_sessions COMMAND ${Python3_EXECUTABLE}
@@ -181,6 +183,12 @@ if(BUILD_TESTING)
         add_test(NAME udp_gameplay COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/udp_gameplay.py $<TARGET_FILE:gfx_server>)
         set_tests_properties(udp_gameplay PROPERTIES TIMEOUT 30)
+        add_test(NAME rejoin_sessions COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/rejoin_sessions.py $<TARGET_FILE:gfx_server>)
+        set_tests_properties(rejoin_sessions PROPERTIES TIMEOUT 40)
+        add_test(NAME rejoin_client COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_rejoin_client.py $<TARGET_FILE:gfx_server> $<TARGET_FILE:rejoin_test_client>)
+        set_tests_properties(rejoin_client PROPERTIES TIMEOUT 30)
     endif()
 endif()
 

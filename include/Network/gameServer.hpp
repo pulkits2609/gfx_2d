@@ -11,6 +11,13 @@ struct LobbyMember{
     std::uint64_t playerId = 0;
     std::string name;
     int team = 0;
+    bool connected = true;
+};
+
+struct RejoinReservation{
+    std::string code;
+    std::uint64_t playerId = 0;
+    std::chrono::steady_clock::time_point leftAt;
 };
 
 struct Lobby{
@@ -41,6 +48,7 @@ class GameServer{
         std::chrono::steady_clock::time_point nextTick;
         std::unordered_map<std::uint64_t, std::shared_ptr<ControlSession>> sessions;
         std::unordered_map<std::string, Lobby> lobbies;
+        std::unordered_map<std::string, RejoinReservation> reservations;
         std::uint64_t nextPlayerId = 1;
         std::uint32_t nextMatch = 1;
         bool running = false;
@@ -55,6 +63,8 @@ class GameServer{
         void Tick();
         void SendSnapshots(Lobby& lobby);
         void SendResults(const Lobby& lobby);
+        bool RejoinMatch(std::uint64_t id, const std::string& token);
+        void ExpireReservations();
         void SendDatagram(const std::vector<std::uint8_t>& bytes, const boost::asio::ip::udp::endpoint& endpoint);
 
     public:

@@ -4,7 +4,7 @@
 #include"UI/viewLayout.hpp"
 #include"Network/gameClient.hpp"
 
-enum class MenuAction{ None, Offline, Create, Join, ChooseTeam, Start, Leave, Return, Disconnect, AskLeave, CancelLeave };
+enum class MenuAction{ None, Offline, Create, Join, ChooseTeam, Start, Leave, Return, Disconnect, AskLeave, CancelLeave, Rejoin };
 
 struct MenuSettings{
     char address[128] = "127.0.0.1";
@@ -29,6 +29,7 @@ class GameUI{
         ImFont* numberFont = nullptr;
         bool leaveOpen = false;
         bool openLeavePopup = false;
+        bool closingGame = false;
         MenuAction DrawLeaveConfirmation(const GameClient* network);
 
     public:
@@ -38,7 +39,7 @@ class GameUI{
         GameUI& operator=(const GameUI&) = delete;
 
         static glm::vec3 TeamColor(int team);
-        void RequestLeave(){ leaveOpen = openLeavePopup = true; }
+        void RequestLeave(bool closeGame = false){ leaveOpen = openLeavePopup = true; closingGame = closeGame; }
         bool IsLeaveOpen() const{ return leaveOpen; }
         MenuAction DrawMenu(MenuSettings& settings, const GameClient* network, bool busy);
         MenuAction Draw(const Game& game, std::size_t selectedPlayer,

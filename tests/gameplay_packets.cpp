@@ -32,6 +32,12 @@ int main(){
         Check(bytes.size() <= MaximumSize, "largest snapshot fits one 1200-byte datagram");
         Check(Decode(bytes.data(), bytes.size(), packet) && packet.snapshot.state.players[8].id == 9
             && packet.snapshot.state.projectiles.size() == MatchRules::MaximumProjectiles, "full snapshot round trip");
+        snapshot.state.time = 5;
+        snapshot.state.projectiles.clear();
+        for(auto& player : snapshot.state.players) player.protectionEndTime = 0;
+        auto expired = State(identity, snapshot);
+        Check(Decode(expired.data(), expired.size(), packet) && packet.snapshot.state.players[0].protectionEndTime == 0,
+            "expired protection stays expired when rendering behind the newest snapshot");
         for(std::size_t size = 0; size < bytes.size(); size++)
             Check(!Decode(bytes.data(), size, packet), "every snapshot truncation is rejected");
         bytes[2] = 99;

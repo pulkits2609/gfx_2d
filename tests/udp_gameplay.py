@@ -178,9 +178,14 @@ try:
     if '--duration' in sys.argv:
         deadline = time.monotonic() + 65
         heartbeat = time.monotonic()
+        next_input = time.monotonic()
         ended = reloaded
         while not ended['finished'] and time.monotonic() < deadline:
             ended = a.state()
+            if time.monotonic() >= next_input:
+                a.input()
+                b.input()
+                next_input = time.monotonic() + .15
             if time.monotonic() - heartbeat > 8:
                 for peer in (a, b, outsider):
                     assert peer.control('ping')['type'] == 'pong'

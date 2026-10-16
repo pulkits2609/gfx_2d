@@ -50,12 +50,14 @@ void Application::GameLoop(){
             glfwSetWindowShouldClose(window.GetNativeWindow(), GLFW_FALSE);
             if(glfwGetWindowAttrib(window.GetNativeWindow(), GLFW_ICONIFIED)) glfwRestoreWindow(window.GetNativeWindow());
             quitAfterLeave = true;
-            hud.RequestLeave();
+            hud.RequestLeave(true);
         }
         if(network) network->Poll();
         if(pendingAction != MenuAction::None && network){
-            if(network->GetState() == GameClient::State::Connected){
+            if(network->GetState() == GameClient::State::Connected
+                && (pendingAction != MenuAction::Rejoin || network->UDPReady())){
                 if(pendingAction == MenuAction::Create) network->CreateLobby(menu.teams, menu.minutes);
+                else if(pendingAction == MenuAction::Rejoin) network->RejoinMatch();
                 else network->JoinLobby(menu.code);
                 pendingAction = MenuAction::None;
             }
@@ -80,7 +82,6 @@ void Application::GameLoop(){
             || glfwGetWindowAttrib(nativeWindow, GLFW_ICONIFIED) == GLFW_TRUE){
             if(network) network->UpdateGameplay(deltaTime, {});
             glfwWaitEventsTimeout(0.05);
-            previousTime = glfwGetTime();
             accumulator = 0.0;
             continue;
         }
@@ -89,6 +90,8 @@ void Application::GameLoop(){
         bool online = network && network->GetState() == GameClient::State::Connected
             && network->GetLobby().is_object() && network->GetLobby()["playing"].get<bool>()
             && network->HasSnapshot();
+        if(wasOnline && !online){ menu.page = 0; quitAfterLeave = false; pendingReload = {}; }
+        wasOnline = online;
         if(escape && !escapeWasPressed){
             if(online) hud.RequestLeave();
             else if(offlinePractice) offlinePractice = false;
@@ -381,6 +384,17 @@ void Application::HandleMenu(MenuAction action){
         selectedPlayer = 0;
         pendingReload = {};
         offlinePractice = true;
+    }
+    else if(action == MenuAction::Rejoin && network){
+        if(network->RejoinSecondsLeft() <= 0){ menu.error = "Rejoining is no longer available."; return; }
+        if(network->GetState() == GameClient::State::Connected && network->UDPReady()) network->RejoinMatch();
+        else{
+            RejoinInfo ticket = network->GetRejoinInfo();
+            network = std::make_unique<GameClient>();
+            network->SetRejoinInfo(ticket);
+            network->Connect(ticket.host, ticket.port, ticket.name);
+            pendingAction = MenuAction::Rejoin;
+        }
     }
     else if(action == MenuAction::Create || action == MenuAction::Join){
         if(network && network->GetState() == GameClient::State::Connected){

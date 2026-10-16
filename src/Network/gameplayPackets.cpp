@@ -26,7 +26,7 @@ namespace{
         std::uint64_t U64(){ auto high = U32(); auto low = U32(); return (static_cast<std::uint64_t>(high) << 32) | low; }
         float Float(){ auto bits = U32(); float value; std::memcpy(&value, &bits, 4); if(!std::isfinite(value)) valid = false; return value; }
         glm::vec2 Vector(){ float x = Float(); float y = Float(); return {x, y}; }
-        double Timer(double now){ return now + U16() / 1000.0; }
+        double Timer(double now){ auto milliseconds = U16(); return milliseconds == 0 ? 0 : now + milliseconds / 1000.0; }
     };
     Writer Header(GameplayPackets::Type type, const GameplayPackets::Identity& identity){
         if(identity.id == 0 || identity.token.size() != 64) throw std::invalid_argument("Invalid gameplay identity");

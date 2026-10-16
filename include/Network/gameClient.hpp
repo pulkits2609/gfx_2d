@@ -6,6 +6,7 @@
 #include"Network/lobby.hpp"
 #include"Network/gameplayPackets.hpp"
 #include"Network/shotPreview.hpp"
+#include"Network/rejoinInfo.hpp"
 
 //Poll runs ready network callbacks without waiting, so drawing never blocks.
 class GameClient{
@@ -27,7 +28,7 @@ class GameClient{
         GameplayPackets::Snapshot latest;
         std::deque<GameplayPackets::Snapshot> snapshots;
         std::deque<GameplayPackets::InputCommand> pendingInputs;
-        std::uint32_t sequence = 0, reloadCounter = 0;
+        std::uint32_t sequence = 0, reloadCounter = 0, lastSentShot = 0;
         bool reloadPending = false;
         double inputAccumulator = 0, predictionTime = 0, lastSnapshotAt = 0, waitingSince = 0;
         Player predicted;
@@ -47,6 +48,9 @@ class GameClient{
         std::uint32_t requestId = 0;
         std::string name;
         std::string sessionToken;
+        std::string rejoinToken, serverHost;
+        unsigned short serverPort = Protocol::ControlPort;
+        RejoinInfo rejoin;
         std::string status = "LOCAL PRACTICE";
         Protocol::Json peers = Protocol::Json::array();
         Protocol::Json lobby;
@@ -68,6 +72,7 @@ class GameClient{
         void ResetGameplay();
         void SendDatagram(const std::vector<std::uint8_t>& bytes);
         void RenderGameplay(double deltaTime, const PlayerInput& input);
+        void RememberRejoin(const std::string& token, const std::string& code, double remaining);
 
     public:
         GameClient() = default;
@@ -85,6 +90,10 @@ class GameClient{
         void StartMatch();
         void LeaveLobby();
         void ReturnToLobby();
+        void RejoinMatch();
+        double RejoinSecondsLeft() const;
+        const RejoinInfo& GetRejoinInfo() const{ return rejoin; }
+        void SetRejoinInfo(const RejoinInfo& info){ rejoin = info; }
         void UpdateGameplay(double deltaTime, const PlayerInput& input);
         bool HasSnapshot() const{ return hasSnapshot; }
         bool UDPReady() const{ return udpReady; }

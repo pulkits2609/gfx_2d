@@ -34,6 +34,7 @@ class Application{
         bool escapeWasPressed = false;
         bool quitAfterLeave = false;
         bool closingConfirmed = false;
+        bool wasOnline = false;
 
         void HandleMenu(MenuAction action);
 

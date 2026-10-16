@@ -275,10 +275,16 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, const GameClient* network, b
             ImGui::EndDisabled();
             if(!opponent) ImGui::TextDisabled("An opposing team needs at least one player.");
         }
-        else ImGui::TextDisabled("Waiting for the host to start.");
+        else ImGui::TextDisabled(lobby["playing"].get<bool>() ? "Entering the match..." : "Waiting for the host to start.");
         if(ImGui::Button("Leave lobby")) action = lobby["playing"].get<bool>() ? MenuAction::AskLeave : MenuAction::Leave;
     }
     else if(settings.page == 0){
+        if(network && network->RejoinSecondsLeft() > 0){
+            std::string label = "Rejoin Match  (" + std::to_string(static_cast<int>(std::ceil(network->RejoinSecondsLeft()))) + "s)";
+            if(ImGui::Button(label.c_str(), ImVec2(-1, 54))) action = MenuAction::Rejoin;
+            ImGui::TextWrapped("Return to your original team through respawn. Rejoining closes when fewer than 2 minutes remain.");
+            ImGui::Separator();
+        }
         if(ImGui::Button("Create Lobby", ImVec2(-1, 54))) settings.page = 1;
         if(ImGui::Button("Join Lobby", ImVec2(-1, 54))) settings.page = 2;
         if(ImGui::Button("Play Offline", ImVec2(-1, 54))) action = MenuAction::Offline;
@@ -338,19 +344,23 @@ MenuAction GameUI::DrawLeaveConfirmation(const GameClient* network){
             ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1), "YOU ARE THE HOST");
             ImGui::TextWrapped("Leaving will stop the match for everyone and close the lobby.");
         }
+        else if(closingGame){
+            ImGui::TextWrapped("Close the game and leave this match?");
+            ImGui::TextWrapped("Rejoining is available only while this app stays open. To keep that option, cancel and leave using Escape instead.");
+        }
         else if(!network->MatchFinished()){
             ImGui::TextWrapped("Leave this match and return to the home screen?");
             ImGui::TextWrapped("You have 60 seconds to rejoin, provided at least 2 minutes remain. You return through respawn.");
         }
         else ImGui::TextWrapped("Leave the results and return to the home screen?");
-        ImGui::TextDisabled("The online match keeps running while this dialog is open.");
+        ImGui::TextWrapped("The match keeps running while this dialog is open.");
         ImGui::Separator();
         if(ImGui::Button("Keep playing", ImVec2(170, 34))){
             leaveOpen = false; action = MenuAction::CancelLeave; ImGui::CloseCurrentPopup();
         }
         ImGui::SetItemDefaultFocus();
         ImGui::SameLine();
-        if(ImGui::Button(host ? "End match and leave" : "Leave match", ImVec2(210, 34))){
+        if(ImGui::Button(host ? "End match and leave" : closingGame ? "Close game" : "Leave match", ImVec2(210, 34))){
             leaveOpen = false; action = MenuAction::Leave; ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();

@@ -326,9 +326,25 @@ void Game::RemovePlayer(std::uint64_t id){
     for(std::size_t i = 0; i < players.size(); i++){
         if(!players[i].active || players[i].id != id) continue;
         players[i].active = false;
+        players[i].health = 0;
+        players[i].reloading = players[i].boosting = false;
         projectiles.erase(std::remove_if(projectiles.begin(), projectiles.end(),
             [i](const Projectile& bullet){ return bullet.owner == i; }), projectiles.end());
     }
+}
+
+bool Game::ResumePlayer(std::uint64_t oldId, std::uint64_t newId){
+    for(auto& player : players){
+        if(player.id != oldId || player.active) continue;
+        player.id = newId;
+        player.active = true;
+        player.health = 0;
+        player.lastShotId = 0;
+        player.respawnTime = elapsedTime + MatchRules::RespawnDelay;
+        player.protectionEndTime = 0;
+        return true;
+    }
+    return false;
 }
 
 Game::State Game::GetState() const{ return {elapsedTime, teamCount, teamScores, players, projectiles}; }
