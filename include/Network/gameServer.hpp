@@ -54,6 +54,7 @@ class GameServer{
         void ScheduleTick();
         void Tick();
         void SendSnapshots(Lobby& lobby);
+        void SendResults(const Lobby& lobby);
         void SendDatagram(const std::vector<std::uint8_t>& bytes, const boost::asio::ip::udp::endpoint& endpoint);
 
     public:

@@ -186,6 +186,10 @@ try:
                     assert peer.control('ping')['type'] == 'pong'
                 heartbeat = time.monotonic()
         assert ended['finished'] and abs(ended['time'] - 60) < .001 and ended['remaining'] == 0
+        result = receive(a.tcp)
+        assert result['type'] == 'match_results' and result['match'] == ended['match']
+        assert result['winningTeam'] == -1 and result['scores'] == [0, 0, 0, 0]
+        assert len(result['players']) == 2, 'results include only this match'
         a.input(1, flags=3)
         time.sleep(.12)
         frozen = a.state()

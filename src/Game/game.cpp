@@ -333,6 +333,16 @@ void Game::RemovePlayer(std::uint64_t id){
 
 Game::State Game::GetState() const{ return {elapsedTime, teamCount, teamScores, players, projectiles}; }
 
+int Game::GetWinningTeam() const{
+    int best = -1, winner = -1;
+    bool tied = false;
+    for(int team = 0; team < teamCount; team++){
+        if(teamScores[team] > best){ best = teamScores[team]; winner = team; tied = false; }
+        else if(teamScores[team] == best) tied = true;
+    }
+    return tied ? -1 : winner;
+}
+
 void Game::ApplyState(const State& state){
     elapsedTime = state.time;
     teamCount = state.teams;

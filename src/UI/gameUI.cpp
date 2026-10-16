@@ -175,16 +175,21 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
         ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(390, 0));
         ImGui::Begin("Match results", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
-        ImGui::TextUnformatted("TIME UP");
-        int best = -1, winner = 0, winners = 0;
-        for(int team = 0; team < game.GetTeamCount(); team++){
-            int score = game.GetTeamScores()[team];
-            ImGui::Text("Team %d: %d", team + 1, score);
-            if(score > best){ best = score; winner = team; winners = 1; }
-            else if(score == best) winners++;
+        const auto& results = network->GetResults();
+        if(results.is_object()){
+            int winner = results["winningTeam"].get<int>();
+            ImGui::PushFont(numberFont);
+            ImGui::TextUnformatted(winner == -1 ? "DRAW" : winner == player.team ? "YOU WIN" : "YOU LOSE");
+            ImGui::PopFont();
+            ImGui::TextDisabled("Time up / final server result");
+            for(int team = 0; team < game.GetTeamCount(); team++)
+                ImGui::Text("Team %d: %d", team + 1, results["scores"][team].get<int>());
+            ImGui::Separator();
+            for(const auto& entry : results["players"])
+                ImGui::Text("%s   K %d / D %d", entry["name"].get_ref<const std::string&>().c_str(),
+                    entry["kills"].get<int>(), entry["deaths"].get<int>());
         }
-        if(winners > 1) ImGui::TextUnformatted("Draw");
-        else ImGui::Text("Team %d wins", winner + 1);
+        else ImGui::TextUnformatted("Confirming the final result...");
         if(network->GetLobby()["hostId"] == network->GetPlayerId()){
             if(ImGui::Button("Return to lobby")) action = MenuAction::Return;
         }

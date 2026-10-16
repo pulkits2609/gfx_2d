@@ -519,6 +519,7 @@ void GameServer::Tick(){
             double remaining = lobby.minutes * 60.0 - lobby.game->GetTime();
             lobby.game->Update(std::min(MatchRules::ServerStep, remaining), inputs);
             lobby.finished = lobby.game->GetTime() + 0.000001 >= lobby.minutes * 60.0;
+            if(lobby.finished) SendResults(lobby);
         }
         lobby.snapshotTime += MatchRules::ServerStep;
         if(lobby.snapshotTime + 0.000001 >= MatchRules::SnapshotStep){
@@ -543,4 +544,23 @@ void GameServer::SendSnapshots(Lobby& lobby){
         snapshot.acknowledged = session->lastProcessed;
         SendDatagram(GameplayPackets::State({session->id, session->sessionToken}, snapshot), session->gameplayEndpoint);
     }
+}
+
+void GameServer::SendResults(const Lobby& lobby){
+    auto result = Protocol::Message("match_results");
+    result["match"] = lobby.match;
+    result["winningTeam"] = lobby.game->GetWinningTeam();
+    result["scores"] = lobby.game->GetTeamScores();
+    result["players"] = Protocol::Json::array();
+    for(const auto& player : lobby.game->GetPlayers()){
+        if(player.id == 0) continue;
+        result["players"].push_back({{"playerId", player.id}, {"name", player.name},
+            {"team", player.team}, {"kills", player.kills}, {"deaths", player.deaths}});
+    }
+    std::vector<std::shared_ptr<ControlSession>> recipients;
+    for(const auto& member : lobby.members){
+        auto found = sessions.find(member.playerId);
+        if(found != sessions.end()) recipients.push_back(found->second);
+    }
+    for(const auto& recipient : recipients) recipient->Send(result);
 }

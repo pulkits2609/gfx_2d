@@ -50,6 +50,7 @@ class GameClient{
         std::string status = "LOCAL PRACTICE";
         Protocol::Json peers = Protocol::Json::array();
         Protocol::Json lobby;
+        Protocol::Json results;
         std::string notice;
 
         void SetDeadline(int seconds);
@@ -92,6 +93,7 @@ class GameClient{
         const Game& GetGame() const{ return renderedGame; }
         std::size_t GetOwnSlot() const{ return ownSlot; }
         const Protocol::Json& GetLobby() const{ return lobby; }
+        const Protocol::Json& GetResults() const{ return results; }
         const std::string& GetNotice() const{ return notice; }
         State GetState() const{ return state; }
         const std::string& GetStatus() const{ return status; }

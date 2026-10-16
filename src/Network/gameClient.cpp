@@ -150,6 +150,26 @@ void GameClient::HandleMessage(){
         Send(Protocol::Message("players"));
         StartHeartbeat();
     }
+    else if(type == "match_results"){
+        if(!lobby.is_object() || !message.contains("match") || message["match"] != lobby["match"]
+            || !message.contains("winningTeam") || !message["winningTeam"].is_number_integer()
+            || message["winningTeam"] < -1 || message["winningTeam"] >= lobby["teams"]
+            || !message.contains("scores") || !message["scores"].is_array() || message["scores"].size() != 4
+            || !message.contains("players") || !message["players"].is_array() || message["players"].size() > Game::PlayerCount){
+            Fail("Invalid match results"); return;
+        }
+        for(const auto& score : message["scores"])
+            if(!score.is_number_unsigned() || score.get<std::uint64_t>() > 65535){ Fail("Invalid final score"); return; }
+        for(const auto& player : message["players"]){
+            if(!player.is_object() || !player.contains("name") || !player["name"].is_string()
+                || !Protocol::ValidName(player["name"].get<std::string>())
+                || !player.contains("kills") || !player["kills"].is_number_unsigned() || player["kills"] > 65535
+                || !player.contains("deaths") || !player["deaths"].is_number_unsigned() || player["deaths"] > 65535){
+                Fail("Invalid result entry"); return;
+            }
+        }
+        results = std::move(message);
+    }
     else if(type == "notice"){
         notice = message.value("message", std::string("Request rejected"));
     }
@@ -298,6 +318,7 @@ void GameClient::ReceiveGameplay(){
 }
 
 void GameClient::ResetGameplay(){
+    results = nullptr;
     hasSnapshot = false;
     shotPreview.Reset();
     latest = {};
