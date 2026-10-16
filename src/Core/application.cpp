@@ -42,8 +42,16 @@ void Application::GameLoop(){
     double previousTime = glfwGetTime();
     double accumulator = 0.0;
 
-    while(!window.ShouldClose()){
+    while(true){
         window.PollEvents();
+        if(window.ShouldClose()){
+            bool inMatch = network && network->GetLobby().is_object() && network->GetLobby()["playing"].get<bool>();
+            if(!inMatch || closingConfirmed) break;
+            glfwSetWindowShouldClose(window.GetNativeWindow(), GLFW_FALSE);
+            if(glfwGetWindowAttrib(window.GetNativeWindow(), GLFW_ICONIFIED)) glfwRestoreWindow(window.GetNativeWindow());
+            quitAfterLeave = true;
+            hud.RequestLeave();
+        }
         if(network) network->Poll();
         if(pendingAction != MenuAction::None && network){
             if(network->GetState() == GameClient::State::Connected){
@@ -82,7 +90,7 @@ void Application::GameLoop(){
             && network->GetLobby().is_object() && network->GetLobby()["playing"].get<bool>()
             && network->HasSnapshot();
         if(escape && !escapeWasPressed){
-            if(online) network->LeaveLobby();
+            if(online) hud.RequestLeave();
             else if(offlinePractice) offlinePractice = false;
         }
         escapeWasPressed = escape;
@@ -104,6 +112,10 @@ void Application::GameLoop(){
             selectedPlayer = network->GetOwnSlot();
         }
         PlayerInput input = ReadInput(nativeWindow, view);
+        if(hud.IsLeaveOpen()){
+            input = {};
+            pendingReload = {};
+        }
 
         input.reload = pendingReload[selectedPlayer];
         if(online){
@@ -360,7 +372,9 @@ void Application::UpdateWindowTitle(){
 
 void Application::HandleMenu(MenuAction action){
     if(action != MenuAction::None) menu.error.clear();
-    if(action == MenuAction::Offline){
+    if(action == MenuAction::AskLeave) hud.RequestLeave();
+    else if(action == MenuAction::CancelLeave) quitAfterLeave = false;
+    else if(action == MenuAction::Offline){
         network.reset();
         pendingAction = MenuAction::None;
         game = Game(menu.teams);
@@ -389,7 +403,14 @@ void Application::HandleMenu(MenuAction action){
     else if(network){
         if(action == MenuAction::ChooseTeam) network->ChooseTeam(menu.chosenTeam);
         else if(action == MenuAction::Start) network->StartMatch();
-        else if(action == MenuAction::Leave) network->LeaveLobby();
+        else if(action == MenuAction::Leave){
+            network->LeaveLobby();
+            menu.page = 0;
+            if(quitAfterLeave){
+                closingConfirmed = true;
+                glfwSetWindowShouldClose(window.GetNativeWindow(), GLFW_TRUE);
+            }
+        }
         else if(action == MenuAction::Return) network->ReturnToLobby();
     }
 }

@@ -54,7 +54,7 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
     ImVec2 screen = ImGui::GetIO().DisplaySize;
     float scale = view.scale;
     ImU32 paper = IM_COL32(233, 232, 221, 255);
@@ -194,9 +194,11 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
             if(ImGui::Button("Return to lobby")) action = MenuAction::Return;
         }
         else ImGui::TextDisabled("Waiting for the host to return to the lobby.");
-        if(ImGui::Button("Leave lobby")) action = MenuAction::Leave;
+        if(ImGui::Button("Leave lobby")) action = MenuAction::AskLeave;
         ImGui::End();
     }
+    MenuAction confirmation = DrawLeaveConfirmation(network);
+    if(confirmation != MenuAction::None) action = confirmation;
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     return action;
@@ -274,7 +276,7 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, const GameClient* network, b
             if(!opponent) ImGui::TextDisabled("An opposing team needs at least one player.");
         }
         else ImGui::TextDisabled("Waiting for the host to start.");
-        if(ImGui::Button("Leave lobby")) action = MenuAction::Leave;
+        if(ImGui::Button("Leave lobby")) action = lobby["playing"].get<bool>() ? MenuAction::AskLeave : MenuAction::Leave;
     }
     else if(settings.page == 0){
         if(ImGui::Button("Create Lobby", ImVec2(-1, 54))) settings.page = 1;
@@ -313,7 +315,45 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, const GameClient* network, b
         if(!network->GetNotice().empty()) ImGui::TextWrapped("%s", network->GetNotice().c_str());
     }
     ImGui::End();
+    MenuAction confirmation = DrawLeaveConfirmation(network);
+    if(confirmation != MenuAction::None) action = confirmation;
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    return action;
+}
+
+MenuAction GameUI::DrawLeaveConfirmation(const GameClient* network){
+    if(!network || !network->GetLobby().is_object()){
+        leaveOpen = openLeavePopup = false;
+        return MenuAction::None;
+    }
+    if(openLeavePopup){ ImGui::OpenPopup("Leave match?"); openLeavePopup = false; }
+    ImVec2 screen = ImGui::GetIO().DisplaySize;
+    ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(470.0f, screen.x - 40), 0));
+    MenuAction action = MenuAction::None;
+    if(ImGui::BeginPopupModal("Leave match?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)){
+        bool host = network->GetLobby()["hostId"] == network->GetPlayerId();
+        if(host){
+            ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1), "YOU ARE THE HOST");
+            ImGui::TextWrapped("Leaving will stop the match for everyone and close the lobby.");
+        }
+        else if(!network->MatchFinished()){
+            ImGui::TextWrapped("Leave this match and return to the home screen?");
+            ImGui::TextWrapped("You have 60 seconds to rejoin, provided at least 2 minutes remain. You return through respawn.");
+        }
+        else ImGui::TextWrapped("Leave the results and return to the home screen?");
+        ImGui::TextDisabled("The online match keeps running while this dialog is open.");
+        ImGui::Separator();
+        if(ImGui::Button("Keep playing", ImVec2(170, 34))){
+            leaveOpen = false; action = MenuAction::CancelLeave; ImGui::CloseCurrentPopup();
+        }
+        ImGui::SetItemDefaultFocus();
+        ImGui::SameLine();
+        if(ImGui::Button(host ? "End match and leave" : "Leave match", ImVec2(210, 34))){
+            leaveOpen = false; action = MenuAction::Leave; ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
     return action;
 }

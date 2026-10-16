@@ -32,6 +32,8 @@ class Application{
         MenuAction pendingAction = MenuAction::None;
         bool offlinePractice = false;
         bool escapeWasPressed = false;
+        bool quitAfterLeave = false;
+        bool closingConfirmed = false;
 
         void HandleMenu(MenuAction action);
 
