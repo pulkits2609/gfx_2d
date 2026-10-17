@@ -6,6 +6,8 @@
 #include"Network/protocol.hpp"
 #include"Network/lobby.hpp"
 #include"Network/gameplayPackets.hpp"
+#include"Network/voiceManager.hpp"
+#include<set>
 
 struct LobbyMember{
     std::uint64_t playerId = 0;
@@ -36,6 +38,11 @@ struct Lobby{
     double snapshotTime = 0;
     std::unique_ptr<Game> game;
     std::vector<LobbyMember> members;
+    std::uint32_t voiceGroup = 0, voiceAll = 0;
+    std::vector<std::uint32_t> voiceTeams;
+    std::string voiceInstance;
+    std::string voiceState = "unavailable";
+    std::string voiceReason = "Voice server is unavailable";
 };
 
 class ControlSession;
@@ -56,6 +63,19 @@ class GameServer{
         std::uint64_t nextPlayerId = 1, nextLobbyId = 1;
         std::uint32_t nextMatch = 1;
         bool running = false;
+        VoiceManager voice;
+        boost::asio::steady_timer voiceShutdown;
+        bool voiceSynchronized = false;
+        unsigned pendingVoiceGroups = 0;
+        std::set<std::uint32_t> voiceAllocations;
+
+        void CreateVoiceGroup(std::uint64_t lobbyId);
+        void DisableVoice(std::uint64_t lobbyId, const std::string& reason);
+        void VoiceLost(bool permanent, const std::string& reason);
+        void ReconcileVoice(std::uint32_t after = 0, std::vector<Protocol::Json> groups = {});
+        void DeleteVoiceGroup(std::uint32_t group);
+        void VoiceCommand(std::uint64_t lobbyId, const std::string& operation, Protocol::Json fields);
+        bool HandleVoice(std::uint64_t id, const Protocol::Json& message);
 
         void AcceptConnection();
         bool HandleLobby(std::uint64_t id, const Protocol::Json& message);
@@ -73,7 +93,7 @@ class GameServer{
 
     public:
         GameServer(boost::asio::io_context& io, const std::string& address, unsigned short port,
-            unsigned short gameplayPort = GameplayPackets::Port);
+            unsigned short gameplayPort = GameplayPackets::Port, VoiceServerSettings voiceSettings = {});
         ~GameServer();
         void Start();
         void Stop();

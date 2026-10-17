@@ -49,7 +49,8 @@ add_library(gfx_protocol STATIC src/Network/protocol.cpp src/Network/gameplayPac
 target_include_directories(gfx_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(gfx_protocol PUBLIC nlohmann_json::nlohmann_json gfx_game)
 
-add_library(gfx_network STATIC src/Network/gameClient.cpp src/Network/gameServer.cpp src/Network/shotPreview.cpp)
+add_library(gfx_network STATIC src/Network/gameClient.cpp src/Network/gameServer.cpp src/Network/shotPreview.cpp
+    src/Network/voiceManager.cpp)
 target_include_directories(gfx_network SYSTEM PUBLIC ${boost_headers_SOURCE_DIR})
 target_link_libraries(gfx_network PUBLIC gfx_protocol Threads::Threads)
 target_compile_definitions(gfx_network PUBLIC BOOST_ERROR_CODE_HEADER_ONLY BOOST_SYSTEM_NO_LIB)
