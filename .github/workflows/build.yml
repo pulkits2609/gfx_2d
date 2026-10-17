@@ -78,6 +78,10 @@ jobs:
             -Recurse
 
           Copy-Item "build/Release/licenses" "dist/gfx_2d-windows-x64/licenses" -Recurse
+          Copy-Item "README.md" "dist/gfx_2d-windows-x64/"
+          if (Test-Path "build/Release/voice") {
+              Copy-Item "build/Release/voice" "dist/gfx_2d-windows-x64/voice" -Recurse
+          }
 
       - name: Create Windows archive
         shell: pwsh
@@ -157,6 +161,10 @@ jobs:
                 dist/gfx_2d-linux-x64/
 
           cp -r build/licenses dist/gfx_2d-linux-x64/
+          cp README.md dist/gfx_2d-linux-x64/
+          if [ -d build/voice ]; then
+            cp -r build/voice dist/gfx_2d-linux-x64/
+          fi
 
       - name: Create Linux archive
         run: |

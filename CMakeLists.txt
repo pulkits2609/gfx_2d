@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(GFX_BUILD_CLIENT "Build the graphical game client" ON)
+set(GFX_VOICE_RUNTIME_DIR "" CACHE PATH "Extracted realtime-voice release to bundle beside gfx")
 
 include(FetchContent)
 if(POLICY CMP0135)
@@ -133,6 +134,22 @@ target_link_libraries(gfx
         imgui
         gfx_network
 )
+
+#Voice remains a separate application, with its own codec/audio dependencies.
+#No voice headers or audio libraries are linked into gfx or gfx_server.
+if(GFX_VOICE_RUNTIME_DIR)
+    if(NOT EXISTS "${GFX_VOICE_RUNTIME_DIR}/voice_client${CMAKE_EXECUTABLE_SUFFIX}")
+        message(FATAL_ERROR "The voice runtime does not contain voice_client for this platform")
+    endif()
+    add_custom_target(gfx_voice_runtime ALL
+        COMMAND ${CMAKE_COMMAND}
+            "-DVOICE_RUNTIME=${GFX_VOICE_RUNTIME_DIR}"
+            "-DVOICE_DESTINATION=$<TARGET_FILE_DIR:gfx>/voice"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/copyVoiceRuntime.cmake
+        COMMENT "Copying the separate voice runtime"
+    )
+    add_dependencies(gfx gfx_voice_runtime)
+endif()
 
 # Runtime Assets
 

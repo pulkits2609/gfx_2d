@@ -6,9 +6,9 @@ The goal is to understand how the different parts of a 2D game/graphics applicat
 
 ## Current Status
 
-The menu offers Create Lobby, Join Lobby and Play Offline. A host chooses 2-4
+The menu offers Create Lobby, Browse Public Lobbies, Join Private Lobby and Play Offline. A host chooses 2-4
 teams and a match duration of 1-30 minutes. Players choose an available team;
-only the host can start, with at least one opposing player. Joining is locked
+only the host can start, with everyone ready and at least one opposing player. Joining is locked
 during the match. Two teams allow four players each, three allow three each,
 and four allow two each. The host leaving closes the lobby.
 
@@ -38,6 +38,96 @@ Use WASD to move, mouse to aim, LMB to fire, R to reload and Shift to boost.
 Escape leaves an online match or returns offline practice to the menu. Keys
 1-4 switch players only in offline practice. Build without graphics using
 `-DGFX_BUILD_CLIENT=OFF`; run checks with `ctest --test-dir build --output-on-failure`.
+
+## Voice chat
+
+Voice uses the separate realtime-voice applications (protocol 2, integration
+checked against commit `d2dd174`). One `voice_server` serves the GFX server's
+voice groups; each running GFX client starts one background `voice_client --ipc`.
+No microphone samples pass through the game server or the process pipes.
+
+Use an extracted protocol-2 voice release as the runtime. Configure its directory
+when building GFX; CMake copies the executables, libraries and license notices into
+the game's `voice/` folder. The directory must contain `BUILD.txt` and `LICENSE`.
+
+```powershell
+cmake -S . -B build -DGFX_VOICE_RUNTIME_DIR="C:/path/to/extracted/realtime-voice-release"
+cmake --build build --config Release
+cd build
+# Start these in separate terminals, from the executable directory:
+.\voice\voice_server.exe 8080
+.\gfx_server.exe
+.\gfx.exe --name Pulkit
+```
+
+For a multi-configuration build, the executable directory is `build/Release`.
+On Ubuntu use `./voice/voice_server 8080`, `./gfx_server` and `./gfx`; keep the
+voice release's launchers, `bin`, `lib` and `share` folders together. When making
+a portable GFX package, include its complete `voice/` folder as well as the
+normal GFX assets and runtime libraries. Voice's license notices travel with it.
+
+You can also use `gfx --voice-client PATH` without copying the voice runtime.
+Use the actual client executable on Windows and the top-level release launcher
+on Ubuntu. The default path is resolved beside `gfx`, not from the working directory.
+Missing voice binaries or an unavailable voice service leave gameplay available.
+
+`gfx_server` connects to `127.0.0.1:8080` by default. Its options are:
+
+| Option | Purpose |
+| --- | --- |
+| `--voice-host HOST` | Address used by the server's management connection |
+| `--voice-port PORT` | Voice server port, used for both TCP and UDP |
+| `--voice-public-host HOST` | Voice address advertised to players; defaults to their selected GFX server hostname |
+| `--no-voice` | Run gameplay without connecting to a voice server |
+
+For LAN play, start voice on the server computer, run GFX with `--bind 0.0.0.0`,
+and allow the voice port for TCP and UDP as well as the normal game ports.
+Use `--voice-public-host` when the voice service has a different reachable address.
+Run voice before creating the gameplay lobby. The GFX server prints
+`Voice manager connected` after its voice connection is ready.
+
+Microphone, incoming All and incoming Team start **muted**. Open the microphone
+with **Mic: muted**; use the separate **Hear All / Hear Team** controls to listen.
+The All/Team buttons choose where your microphone transmits. You always remain
+eligible to receive All and your own Team, independently of that selection.
+Choices stay in memory until GFX closes, including if its voice child is replaced.
+
+Waiting lobbies transmit to All and disable Team selection. Starting the match
+selects Team; returning to the lobby selects All. Results retain the same group
+and channels, and deaths/respawns do not change voice. Guest departure removes
+that voice membership; an approved gameplay rejoin gets a new voice session on
+the restored team. Host departure destroys the entire group. Manual deletion or
+a voice restart disables voice for the affected lobby without ending the game.
+An existing game never silently gets replacement voice channels after a restart.
+
+At most five GFX-created groups may exist, including pending creations, waiting
+lobbies, running matches and results. Manually created voice groups do not count.
+Brief management TCP interruptions can resume the same owner/groups for ten
+seconds. Reconciliation applies team/phase changes and departures made during
+the gap. This version uses the voice project's unauthenticated testing API;
+ownership IDs identify a connection's groups and are not login credentials.
+
+To test with actual voice processes without opening audio devices:
+
+```powershell
+cmake -S . -B build -DGFX_VOICE_SERVER_EXECUTABLE="C:/voice/voice_server.exe" -DGFX_VOICE_CLIENT_EXECUTABLE="C:/voice/voice_client.exe"
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
+
+The optional `voice_integration` suite checks GFX-to-voice ownership, capacity,
+binding, management recovery, manual deletion, restart and two real GFX client
+processes with background voice children. `voice_process` also tests broken
+children and bounded pipe handling without requiring the voice runtime.
+For a full one-minute match through results and lobby return, run:
+
+```powershell
+python tests/voice_integration.py build/gfx_server.exe build/voice/voice_server.exe --client-driver build/voice_test_client.exe --voice-client build/voice/voice_client.exe --timed
+```
+
+Use the corresponding Ubuntu paths without `.exe`, or `build/Release` paths for
+multi-configuration Windows builds. Real two-way speech, simultaneous speakers
+on headphones, and cross-machine network behavior still need a hardware/LAN check.
 
 
 The project currently has:

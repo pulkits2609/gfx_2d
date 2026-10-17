@@ -46,7 +46,9 @@ int main(int argc, char* argv[]){
                 game.FetchLobbies();
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
-            if(voice.Connected() && !ready){
+            //Joining resets readiness for the whole roster. Wait for both test
+            //players before clicking Ready, just as the lobby UI requires.
+            if(voice.Connected() && !ready && game.UDPReady() && game.GetLobby().at("members").size() == 2){
                 Check(!voice.TeamEnabled(), "Team sending enabled before match start");
                 Check(!voice.TransmittingTeam(), "Waiting lobby did not select All");
                 Check(voice.MicrophoneMuted() && voice.AllMuted() && voice.TeamMuted(), "Fresh voice did not start fully muted");
@@ -139,7 +141,7 @@ int main(int argc, char* argv[]){
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        throw std::runtime_error("Voice client checkpoint timed out: " + voice.Status());
+        throw std::runtime_error("Voice client checkpoint timed out: " + voice.Status() + " / " + game.GetLobby().dump());
     }
     catch(const std::exception& error){ std::cerr << error.what() << '\n'; return 1; }
 }

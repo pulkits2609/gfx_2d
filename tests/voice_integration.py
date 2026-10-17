@@ -348,9 +348,13 @@ class VoiceIntegration(unittest.TestCase):
             child = subprocess.Popen([ARGS.client_driver, str(self.game_port), role, ARGS.voice_client],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             self.children.append(child); clients.append(child)
+        results = []
         for child in clients:
             output, error = child.communicate(timeout=24)
-            self.assertEqual(child.returncode, 0, output + error)
+            results.append((child, output, error))
+        diagnostics = '\n'.join(output + error for _, output, error in results)
+        for child, output, error in results:
+            self.assertEqual(child.returncode, 0, diagnostics)
             self.assertIn('Voice client lifecycle passed', output)
         wait_until(lambda: self.operator('list')['data']['total_groups'] == 0)
 
