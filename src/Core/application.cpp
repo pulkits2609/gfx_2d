@@ -56,7 +56,8 @@ void Application::GameLoop(){
         if(pendingAction != MenuAction::None && network){
             if(network->GetState() == GameClient::State::Connected
                 && (pendingAction != MenuAction::Rejoin || network->UDPReady())){
-                if(pendingAction == MenuAction::Create) network->CreateLobby(menu.teams, menu.minutes);
+                if(pendingAction == MenuAction::Create) network->CreateLobby(menu.teams, menu.minutes, menu.isPublic);
+                else if(pendingAction == MenuAction::Browse) network->FetchLobbies();
                 else if(pendingAction == MenuAction::Rejoin) network->RejoinMatch();
                 else network->JoinLobby(menu.code);
                 pendingAction = MenuAction::None;
@@ -399,9 +400,10 @@ void Application::HandleMenu(MenuAction action){
             pendingAction = MenuAction::Rejoin;
         }
     }
-    else if(action == MenuAction::Create || action == MenuAction::Join){
+    else if(action == MenuAction::Create || action == MenuAction::Join || action == MenuAction::Browse){
         if(network && network->GetState() == GameClient::State::Connected){
-            if(action == MenuAction::Create) network->CreateLobby(menu.teams, menu.minutes);
+            if(action == MenuAction::Create) network->CreateLobby(menu.teams, menu.minutes, menu.isPublic);
+            else if(action == MenuAction::Browse) network->FetchLobbies();
             else network->JoinLobby(menu.code);
         }
         else{
@@ -416,9 +418,15 @@ void Application::HandleMenu(MenuAction action){
             pendingAction = action;
         }
     }
-    else if(action == MenuAction::Disconnect) network.reset();
+    else if(action == MenuAction::Disconnect){
+        network.reset();
+        pendingAction = MenuAction::None;
+    }
     else if(network){
-        if(action == MenuAction::ChooseTeam) network->ChooseTeam(menu.chosenTeam);
+        if(action == MenuAction::JoinPublic) network->JoinPublicLobby(menu.chosenLobby);
+        else if(action == MenuAction::Ready) network->SetReady(menu.ready);
+        else if(action == MenuAction::ChooseShape) network->ChooseTeamShape(menu.chosenTeam, menu.chosenShape);
+        else if(action == MenuAction::ChooseTeam) network->ChooseTeam(menu.chosenTeam);
         else if(action == MenuAction::Start) network->StartMatch();
         else if(action == MenuAction::Leave){
             network->LeaveLobby();

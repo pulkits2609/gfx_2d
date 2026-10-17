@@ -4,7 +4,7 @@
 #include"UI/viewLayout.hpp"
 #include"Network/gameClient.hpp"
 
-enum class MenuAction{ None, Offline, Create, Join, ChooseTeam, Start, Leave, Return, Disconnect, AskLeave, CancelLeave, Rejoin };
+enum class MenuAction{ None, Offline, Create, Join, ChooseTeam, Start, Leave, Return, Disconnect, AskLeave, CancelLeave, Rejoin, Browse, JoinPublic, Ready, ChooseShape };
 
 struct MenuSettings{
     char address[128] = "127.0.0.1";
@@ -14,6 +14,10 @@ struct MenuSettings{
     int teams = 2;
     int minutes = LobbyRules::DefaultMinutes;
     int chosenTeam = 0;
+    int chosenShape = 0;
+    std::uint64_t chosenLobby = 0;
+    bool isPublic = false;
+    bool ready = false;
     int page = 0;
     std::string error;
 };
