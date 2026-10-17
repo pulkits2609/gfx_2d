@@ -54,6 +54,8 @@ class GameClient{
         std::string status = "LOCAL PRACTICE";
         Protocol::Json peers = Protocol::Json::array();
         Protocol::Json lobby;
+        Protocol::Json publicLobbies = Protocol::Json::array();
+        bool listingReceived = false;
         Protocol::Json results;
         std::string notice;
 
@@ -84,7 +86,9 @@ class GameClient{
         void Poll();
         void Disconnect();
         void SendPing();
-        void CreateLobby(int teams, int minutes);
+        void CreateLobby(int teams, int minutes, bool isPublic = false);
+        void FetchLobbies();
+        void JoinPublicLobby(std::uint64_t lobbyId);
         void JoinLobby(const std::string& code);
         void ChooseTeam(int team);
         void StartMatch();
@@ -101,6 +105,9 @@ class GameClient{
         float RemainingTime() const{ return hasSnapshot ? latest.remaining : 0; }
         const Game& GetGame() const{ return renderedGame; }
         std::size_t GetOwnSlot() const{ return ownSlot; }
+        const Protocol::Json& GetPublicLobbies() const{ return publicLobbies; }
+        bool HasLobbyList() const{ return listingReceived; }
+        std::string GetServerAddress() const{ return serverHost + ":" + std::to_string(serverPort); }
         const Protocol::Json& GetLobby() const{ return lobby; }
         const Protocol::Json& GetResults() const{ return results; }
         const std::string& GetNotice() const{ return notice; }

@@ -15,13 +15,15 @@ struct LobbyMember{
 };
 
 struct RejoinReservation{
-    std::string code;
+    std::uint64_t lobbyId = 0;
     std::uint64_t playerId = 0;
     std::chrono::steady_clock::time_point leftAt;
 };
 
 struct Lobby{
-    std::string code;
+    std::uint64_t id = 0;
+    bool isPublic = false;
+    std::string code; //only private lobbies have a join code
     std::uint64_t hostId = 0;
     int teams = 2;
     int minutes = LobbyRules::DefaultMinutes;
@@ -47,9 +49,9 @@ class GameServer{
         boost::asio::steady_timer tickTimer;
         std::chrono::steady_clock::time_point nextTick;
         std::unordered_map<std::uint64_t, std::shared_ptr<ControlSession>> sessions;
-        std::unordered_map<std::string, Lobby> lobbies;
+        std::unordered_map<std::uint64_t, Lobby> lobbies;
         std::unordered_map<std::string, RejoinReservation> reservations;
-        std::uint64_t nextPlayerId = 1;
+        std::uint64_t nextPlayerId = 1, nextLobbyId = 1;
         std::uint32_t nextMatch = 1;
         bool running = false;
 

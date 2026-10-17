@@ -73,6 +73,8 @@ void GameClient::Disconnect(){
     udpReady = false;
     ResetGameplay();
     lobby = nullptr;
+    publicLobbies.clear();
+    listingReceived = false;
     status = "OFFLINE";
     socket.shutdown(tcp::socket::shutdown_both, ignored);
     socket.close(ignored);
@@ -163,7 +165,7 @@ void GameClient::HandleMessage(){
     else if(type == "rejoin_available"){
         if(!message.contains("token") || !message["token"].is_string() || message["token"] != rejoinToken
             || !message.contains("code") || !message["code"].is_string()
-            || !LobbyRules::ValidCode(message["code"].get<std::string>())
+            || (!message["code"].get_ref<const std::string&>().empty() && !LobbyRules::ValidCode(message["code"].get<std::string>()))
             || !message.contains("remaining") || !message["remaining"].is_number()){
             Fail("Invalid rejoin offer"); return;
         }
@@ -196,9 +198,30 @@ void GameClient::HandleMessage(){
     else if(type == "notice"){
         notice = message.value("message", std::string("Request rejected"));
     }
+    else if(type == "lobby_list"){
+        if(!message.contains("lobbies") || !message["lobbies"].is_array() || message["lobbies"].size() > 32){
+            Fail("Invalid public lobby list"); return;
+        }
+        for(const auto& room : message["lobbies"]){
+            if(!room.is_object() || !room.contains("lobbyId") || !room["lobbyId"].is_number_unsigned() || room["lobbyId"] == 0
+                || !room.contains("host") || !room["host"].is_string() || !Protocol::ValidName(room["host"].get<std::string>())
+                || !room.contains("teams") || !room["teams"].is_number_integer() || room["teams"] < 2 || room["teams"] > 4
+                || !room.contains("minutes") || !room["minutes"].is_number_integer() || room["minutes"] < 1 || room["minutes"] > 30
+                || !room.contains("capacity") || !room["capacity"].is_number_integer()
+                || room["capacity"] != room["teams"].get<int>() * LobbyRules::PlayersPerTeam(room["teams"].get<int>())
+                || !room.contains("players") || !room["players"].is_number_unsigned() || room["players"] < 1 || room["players"] > room["capacity"]){
+                Fail("Invalid public lobby entry"); return;
+            }
+        }
+        publicLobbies = std::move(message["lobbies"]);
+        listingReceived = true;
+    }
     else if(type == "lobby"){
         if(!message.contains("code") || !message["code"].is_string()
-            || !LobbyRules::ValidCode(message["code"].get<std::string>())
+            || !message.contains("lobbyId") || !message["lobbyId"].is_number_unsigned() || message["lobbyId"] == 0
+            || !message.contains("public") || !message["public"].is_boolean()
+            || (message["public"].get<bool>() ? !message["code"].get_ref<const std::string&>().empty()
+                : !LobbyRules::ValidCode(message["code"].get<std::string>()))
             || !message.contains("teams") || !message["teams"].is_number_integer()
             || message["teams"] < 2 || message["teams"] > 4
             || !message.contains("minutes") || !message["minutes"].is_number_integer()
@@ -272,11 +295,12 @@ void GameClient::StartHeartbeat(){
     });
 }
 
-void GameClient::CreateLobby(int teams, int minutes){
+void GameClient::CreateLobby(int teams, int minutes, bool isPublic){
     notice.clear();
     auto message = Protocol::Message("create_lobby");
     message["teams"] = teams;
     message["minutes"] = minutes;
+    message["public"] = isPublic;
     Send(message);
 }
 
@@ -284,6 +308,19 @@ void GameClient::JoinLobby(const std::string& code){
     notice.clear();
     auto message = Protocol::Message("join_lobby");
     message["code"] = LobbyRules::NormalizeCode(code);
+    Send(message);
+}
+
+void GameClient::FetchLobbies(){
+    notice.clear();
+    listingReceived = false;
+    Send(Protocol::Message("list_lobbies"));
+}
+
+void GameClient::JoinPublicLobby(std::uint64_t lobbyId){
+    notice.clear();
+    auto message = Protocol::Message("join_public");
+    message["lobbyId"] = lobbyId;
     Send(message);
 }
 

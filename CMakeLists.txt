@@ -176,6 +176,9 @@ if(BUILD_TESTING)
         add_test(NAME lobbies COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/lobbies.py $<TARGET_FILE:gfx_server>)
         set_tests_properties(lobbies PROPERTIES TIMEOUT 60)
+        add_test(NAME public_lobbies COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/public_lobbies.py $<TARGET_FILE:gfx_server>)
+        set_tests_properties(public_lobbies PROPERTIES TIMEOUT 60)
         add_test(NAME two_clients COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/two_clients.py
             $<TARGET_FILE:gfx_server> $<TARGET_FILE:gameplay_test_client>)
