@@ -410,6 +410,7 @@ void GameServer::ReconcileVoice(std::uint32_t after, std::vector<Protocol::Json>
             });
         }
         voiceSynchronized = true;
+        std::cout << "Voice manager connected to " << voice.Settings().host << ':' << voice.Settings().port << std::endl;
         std::vector<std::uint64_t> retained;
         for(const auto& entry : lobbies) if(entry.second.voiceGroup) retained.push_back(entry.first);
         for(auto id : retained){ auto room = lobbies.find(id); if(room != lobbies.end()) BroadcastLobby(room->second); }
@@ -434,6 +435,7 @@ bool GameServer::HandleVoice(std::uint64_t id, const Protocol::Json& message){
         || !message.contains("group") || message["group"] != lobby.voiceGroup){ reject("Stale voice connection"); return true; }
     if(type == "voice_transmit"){
         if(!player->voiceBound){ reject("Voice has not connected yet"); return true; }
+        if(!message.contains("channel") || !message["channel"].is_string()){ reject("Choose All or Team"); return true; }
         const std::string channel = message.value("channel", "");
         if(channel != "all" && channel != "team"){ reject("Choose All or Team"); return true; }
         if(channel == "team" && !lobby.playing){ reject("Team voice is disabled until the match starts"); return true; }
@@ -460,6 +462,9 @@ bool GameServer::HandleVoice(std::uint64_t id, const Protocol::Json& message){
         if(found == sessions.end() || found->second->lobbyId != lobbyId || found->second->voiceSession != voiceId) return;
         found->second->voiceBound = ok;
         if(ok){
+            auto reply = Protocol::Message("voice_bound");
+            reply.update({{"session", voiceId}, {"instance", voice.Instance()}, {"group", data.at("group_id")}});
+            found->second->Send(reply);
             auto room = lobbies.find(lobbyId);
             if(room != lobbies.end()) for(const auto& member : room->second.members)
                 if(member.playerId == id) VoiceCommand(lobbyId, "set_team", {{"session_id", voiceId}, {"team", member.team + 1}});

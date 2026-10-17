@@ -50,7 +50,7 @@ target_include_directories(gfx_protocol PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inclu
 target_link_libraries(gfx_protocol PUBLIC nlohmann_json::nlohmann_json gfx_game)
 
 add_library(gfx_network STATIC src/Network/gameClient.cpp src/Network/gameServer.cpp src/Network/shotPreview.cpp
-    src/Network/voiceManager.cpp)
+    src/Network/voiceManager.cpp src/Network/voiceProcess.cpp src/Network/voiceChat.cpp)
 target_include_directories(gfx_network SYSTEM PUBLIC ${boost_headers_SOURCE_DIR})
 target_link_libraries(gfx_network PUBLIC gfx_protocol Threads::Threads)
 target_compile_definitions(gfx_network PUBLIC BOOST_ERROR_CODE_HEADER_ONLY BOOST_SYSTEM_NO_LIB)
@@ -168,8 +168,23 @@ if(BUILD_TESTING)
     target_link_libraries(gameplay_test_client PRIVATE gfx_network)
     add_executable(rejoin_test_client tests/rejoin_client.cpp)
     target_link_libraries(rejoin_test_client PRIVATE gfx_network)
+    add_executable(voice_test_client tests/voice_client.cpp)
+    target_link_libraries(voice_test_client PRIVATE gfx_network)
+    add_executable(voice_process_tests tests/voice_process.cpp)
+    target_link_libraries(voice_process_tests PRIVATE gfx_network)
+    add_test(NAME voice_process COMMAND voice_process_tests)
+    set_tests_properties(voice_process PROPERTIES TIMEOUT 25)
+    set(GFX_VOICE_SERVER_EXECUTABLE "" CACHE FILEPATH "Optional voice_server for real voice integration tests")
+    set(GFX_VOICE_CLIENT_EXECUTABLE "" CACHE FILEPATH "Optional voice_client for device-free integration tests")
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        if(GFX_VOICE_SERVER_EXECUTABLE AND GFX_VOICE_CLIENT_EXECUTABLE)
+            add_test(NAME voice_integration COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/voice_integration.py $<TARGET_FILE:gfx_server>
+                ${GFX_VOICE_SERVER_EXECUTABLE} --client-driver $<TARGET_FILE:voice_test_client>
+                --voice-client ${GFX_VOICE_CLIENT_EXECUTABLE})
+            set_tests_properties(voice_integration PROPERTIES TIMEOUT 100 RUN_SERIAL TRUE)
+        endif()
         add_test(NAME tcp_sessions COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/tcp_sessions.py
             $<TARGET_FILE:gfx_server> $<TARGET_FILE:gfx_control_client>)

@@ -10,11 +10,12 @@ int main(int argc, char* argv[]){
         int teams = 4;
         std::string host;
         std::string name = "Player 1";
+        std::string voiceClient = VoiceProcess::DefaultExecutable();
         unsigned short port = Protocol::ControlPort;
         for(int i = 1; i < argc; i++){
             std::string option = argv[i];
             if(option == "--help"){
-                std::cout << "gfx [--teams 2|3|4] [--server HOST] [--port PORT] [--name NAME]\n";
+                std::cout << "gfx [--teams 2|3|4] [--server HOST] [--port PORT] [--name NAME] [--voice-client PATH]\n";
                 return 0;
             }
             if(i + 1 >= argc) throw std::invalid_argument("Missing option value");
@@ -25,6 +26,7 @@ int main(int argc, char* argv[]){
             }
             else if(option == "--server") host = value;
             else if(option == "--name") name = value;
+            else if(option == "--voice-client") voiceClient = value;
             else if(option == "--port"){
                 unsigned number = 0;
                 auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
@@ -34,7 +36,7 @@ int main(int argc, char* argv[]){
             }
             else throw std::invalid_argument("Unknown option: " + option);
         }
-        Application app(teams, host, port, name);
+        Application app(teams, host, port, name, voiceClient);
         app.RunApplication();
     }
     catch(const std::exception& e){

@@ -58,6 +58,9 @@ class GameClient{
         bool listingReceived = false;
         Protocol::Json results;
         std::string notice;
+        std::string voiceNotice;
+        Protocol::Json voiceTransmit;
+        std::uint32_t voiceBoundSession = 0;
 
         void SetDeadline(int seconds);
         void ReadHeader();
@@ -97,6 +100,14 @@ class GameClient{
         void LeaveLobby();
         void ReturnToLobby();
         void RejoinMatch();
+        void BindVoice(std::uint32_t session, const std::string& instance, std::uint32_t group);
+        void SelectVoiceTransmit(bool team);
+        Protocol::Json TakeVoiceTransmit(){ auto approval = std::move(voiceTransmit); voiceTransmit = nullptr; return approval; }
+        const std::string& GetVoiceNotice() const{ return voiceNotice; }
+        void ClearVoiceNotice(){ voiceNotice.clear(); }
+        bool VoiceSessionReady(std::uint32_t session) const{ return session && voiceBoundSession == session; }
+        const std::string& GetServerHost() const{ return serverHost; }
+        const std::string& GetName() const{ return name; }
         double RejoinSecondsLeft() const;
         const RejoinInfo& GetRejoinInfo() const{ return rejoin; }
         void SetRejoinInfo(const RejoinInfo& info){ rejoin = info; }

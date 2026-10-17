@@ -3,6 +3,7 @@
 #include"Game/game.hpp"
 #include"UI/viewLayout.hpp"
 #include"Network/gameClient.hpp"
+#include"Network/voiceChat.hpp"
 
 enum class MenuAction{ None, Offline, Create, Join, ChooseTeam, Start, Leave, Return, Disconnect, AskLeave, CancelLeave, Rejoin, Browse, JoinPublic, Ready, ChooseShape };
 
@@ -35,6 +36,7 @@ class GameUI{
         bool openLeavePopup = false;
         bool closingGame = false;
         MenuAction DrawLeaveConfirmation(const GameClient* network);
+        void DrawVoice(GameClient* network, VoiceChat* voice, bool floating);
 
     public:
         explicit GameUI(GLFWwindow* window);
@@ -45,7 +47,7 @@ class GameUI{
         static glm::vec3 TeamColor(int team);
         void RequestLeave(bool closeGame = false){ leaveOpen = openLeavePopup = true; closingGame = closeGame; }
         bool IsLeaveOpen() const{ return leaveOpen; }
-        MenuAction DrawMenu(MenuSettings& settings, const GameClient* network, bool busy);
+        MenuAction DrawMenu(MenuSettings& settings, GameClient* network, bool busy, VoiceChat* voice = nullptr);
         MenuAction Draw(const Game& game, std::size_t selectedPlayer,
-            const ViewLayout& view, const std::string& connectionStatus, const GameClient* network = nullptr);
+            const ViewLayout& view, const std::string& connectionStatus, GameClient* network = nullptr, VoiceChat* voice = nullptr);
 };

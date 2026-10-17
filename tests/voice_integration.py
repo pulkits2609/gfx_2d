@@ -118,7 +118,11 @@ class Proxy:
             if self.pause:
                 client.close()
                 continue
-            target = socket.create_connection(('127.0.0.1', self.destination), timeout=3)
+            try:
+                target = socket.create_connection(('127.0.0.1', self.destination), timeout=3)
+            except OSError:
+                client.close()
+                continue
             pair = (client, target)
             self.pairs.append(pair)
             worker = threading.Thread(target=self.relay, args=(pair,))
@@ -180,8 +184,15 @@ class VoiceIntegration(unittest.TestCase):
         self.children.append(self.gfx)
         line = self.gfx.stdout.readline().strip()
         self.game_port = int(re.search(r':(\d+)$', line)[1])
-        wait_until(lambda: self.operator('list')['data']['total_groups'] == 0)
-        time.sleep(.25)  #Allow initial management hello/list reconciliation.
+        self.gfx_output = queue.Queue()
+        self.gfx_reader = threading.Thread(target=lambda: [self.gfx_output.put(line) for line in self.gfx.stdout])
+        self.gfx_reader.start()
+        deadline = time.monotonic() + 6
+        while time.monotonic() < deadline:
+            if 'Voice manager connected' in self.gfx_output.get(timeout=max(.01, deadline - time.monotonic())):
+                break
+        else:
+            raise AssertionError('GFX management did not finish its initial voice reconciliation')
 
     def read_voice(self):
         for line in self.voice.stdout:
@@ -234,6 +245,7 @@ class VoiceIntegration(unittest.TestCase):
         player.send('voice_bind', session=voice.identity, instance=config['instance'], group=config['group'])
         joined = voice.receive('state')['data']
         self.assertEqual(joined['state'], 'joined')
+        self.assertEqual(player.receive('voice_bound')['session'], voice.identity)
         return voice
 
     def test_lifecycle_binding_and_operator_deletion(self):
@@ -245,6 +257,10 @@ class VoiceIntegration(unittest.TestCase):
         host_voice, guest_voice = self.bind(host, room), self.bind(guest, room)
         details = self.operator('show ' + str(original['group']))['data']
         self.assertEqual([p['team'] for p in details['participants']], [1, 2])
+        guest.send('voice_transmit', group=original['group'], instance=original['instance'], channel=17)
+        self.assertIn('Choose All or Team', guest.receive('voice_error')['message'])
+        guest.send('voice_bind', group=original['group'], instance='0' * 16, session=guest_voice.identity)
+        self.assertIn('Stale', guest.receive('voice_error')['message'])
         guest.send('voice_transmit', group=original['group'], instance=original['instance'], channel='team')
         self.assertIn('until the match starts', guest.receive('voice_error')['message'])
         guest.send('choose_team', team=3)
@@ -265,6 +281,8 @@ class VoiceIntegration(unittest.TestCase):
         guest.receive('lobby_closed')
 
     def test_five_groups_and_pending_reservations(self):
+        self.operator('create game 4 manual-game')
+        self.operator('create lobby manual-lobby')
         hosts = [self.player() for _ in range(6)]
         for host in hosts:
             host.send('create_lobby', teams=2, minutes=3, public=True)
@@ -274,9 +292,9 @@ class VoiceIntegration(unittest.TestCase):
                 or 'five voice groups' in item['voice']['reason']))
         ready = [room for room in rooms if room['voice']['state'] == 'ready']
         self.assertEqual(len(ready), 5)
-        self.assertEqual(self.operator('list')['data']['total_groups'], 5)
+        self.assertEqual(self.operator('list')['data']['total_groups'], 7)
         hosts[0].send('leave_lobby'); hosts[0].receive('lobby_left')
-        wait_until(lambda: self.operator('list')['data']['total_groups'] == 4)
+        wait_until(lambda: self.operator('list')['data']['total_groups'] == 6)
         hosts[5].send('leave_lobby'); hosts[5].receive('lobby_left')
         self.assertEqual(self.create(hosts[5])['voice']['state'], 'ready')
 
@@ -317,7 +335,7 @@ class VoiceIntegration(unittest.TestCase):
         self.response(lambda item: item.get('event') == 'server_ready')
         unavailable = host.receive('lobby', lambda item: item['voice']['state'] == 'unavailable')
         self.assertEqual(unavailable['lobbyId'], room['lobbyId'])
-        time.sleep(.5)
+        self.gfx_output.get(timeout=6) #Fresh registration/reconciliation after restart.
         self.assertEqual(self.operator('list')['data']['total_groups'], 0)
         host.send('leave_lobby'); host.receive('lobby_left')
         self.assertEqual(self.create(host)['voice']['state'], 'ready')
@@ -336,6 +354,20 @@ class VoiceIntegration(unittest.TestCase):
             self.assertIn('Voice client lifecycle passed', output)
         wait_until(lambda: self.operator('list')['data']['total_groups'] == 0)
 
+    def test_results_and_lobby_return_keep_voice(self):
+        if not ARGS.timed:
+            self.skipTest('Enable --timed for the full one-minute match')
+        clients = []
+        for role in ('host_timed', 'guest_timed'):
+            child = subprocess.Popen([ARGS.client_driver, str(self.game_port), role, ARGS.voice_client],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.children.append(child); clients.append(child)
+        for child in clients:
+            output, error = child.communicate(timeout=85)
+            self.assertEqual(child.returncode, 0, output + error)
+            self.assertIn('passed through results and lobby return', output)
+        wait_until(lambda: self.operator('list')['data']['total_groups'] == 0)
+
     def cleanup(self):
         for peer in self.peers:
             peer.close()
@@ -351,6 +383,8 @@ class VoiceIntegration(unittest.TestCase):
                         child.kill(); child.wait(timeout=3)
                 else:
                     child.kill(); child.wait(timeout=3)
+            if child is getattr(self, 'gfx', None) and hasattr(self, 'gfx_reader'):
+                self.gfx_reader.join(timeout=3)
             for stream in (child.stdin, child.stdout, child.stderr):
                 if stream and not stream.closed:
                     stream.close()
@@ -364,5 +398,6 @@ if __name__ == '__main__':
     parser.add_argument('voice_server', type=lambda value: str(Path(value).resolve()))
     parser.add_argument('--client-driver', type=lambda value: str(Path(value).resolve()))
     parser.add_argument('--voice-client', type=lambda value: str(Path(value).resolve()))
+    parser.add_argument('--timed', action='store_true')
     ARGS, other = parser.parse_known_args()
     unittest.main(argv=[__file__, *other])

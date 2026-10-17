@@ -7,7 +7,7 @@
 #include<imgui.h>
 
 Application::Application(int numberOfTeams, const std::string& serverHost,
-    unsigned short controlPort, const std::string& name):window(
+    unsigned short controlPort, const std::string& name, const std::string& voiceClient):window(
     1280,
     800,
     "GFX_2D - 1-4 select | WASD move | Mouse aim | LMB shoot"
@@ -26,7 +26,8 @@ meshes{
 transforms(),
 keyboardinput(),
 game(numberOfTeams),
-hud(window.GetNativeWindow()){
+hud(window.GetNativeWindow()),
+voice(voiceClient){
     menu.teams = numberOfTeams;
     menu.port = controlPort;
     std::snprintf(menu.name, sizeof(menu.name), "%s", name.c_str());
@@ -53,6 +54,7 @@ void Application::GameLoop(){
             hud.RequestLeave(true);
         }
         if(network) network->Poll();
+        voice.Update(network.get());
         if(pendingAction != MenuAction::None && network){
             if(network->GetState() == GameClient::State::Connected
                 && (pendingAction != MenuAction::Rejoin || network->UDPReady())){
@@ -101,7 +103,7 @@ void Application::GameLoop(){
         if(!offlinePractice && !online){
             accumulator = 0;
             renderer.Clear(0.025f, 0.03f, 0.04f, 1.0f);
-            HandleMenu(hud.DrawMenu(menu, network.get(), pendingAction != MenuAction::None));
+            HandleMenu(hud.DrawMenu(menu, network.get(), pendingAction != MenuAction::None, &voice));
             window.SwapBuffers();
             continue;
         }
@@ -154,7 +156,7 @@ void Application::GameLoop(){
         DrawShots(projection);
         glViewport(0, 0, framebufferWidth, framebufferHeight);
         MenuAction hudAction = hud.Draw(game, selectedPlayer, view,
-            online ? network->GetStatus() : "OFFLINE PRACTICE / ESC MENU", online ? network.get() : nullptr);
+            online ? network->GetStatus() : "OFFLINE PRACTICE / ESC MENU", online ? network.get() : nullptr, &voice);
         HandleMenu(hudAction);
 
         //avoid rebuilding the native window title every frame

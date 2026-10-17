@@ -49,7 +49,7 @@ glm::vec3 GameUI::TeamColor(int team){
 }
 
 MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
-    const ViewLayout& view, const std::string& connectionStatus, const GameClient* network){
+    const ViewLayout& view, const std::string& connectionStatus, GameClient* network, VoiceChat* voice){
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -197,6 +197,7 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
         if(ImGui::Button("Leave lobby")) action = MenuAction::AskLeave;
         ImGui::End();
     }
+    if(network) DrawVoice(network, voice, true);
     MenuAction confirmation = DrawLeaveConfirmation(network);
     if(confirmation != MenuAction::None) action = confirmation;
     ImGui::Render();
@@ -204,7 +205,7 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     return action;
 }
 
-MenuAction GameUI::DrawMenu(MenuSettings& settings, const GameClient* network, bool busy){
+MenuAction GameUI::DrawMenu(MenuSettings& settings, GameClient* network, bool busy, VoiceChat* voice){
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -228,6 +229,7 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, const GameClient* network, b
     bool inLobby = connected && network->GetLobby().is_object();
     if(connected) ImGui::TextDisabled("SERVER  %s", network->GetServerAddress().c_str());
     if(inLobby){
+        DrawVoice(network, voice, false);
         const auto& lobby = network->GetLobby();
         bool host = lobby["hostId"] == network->GetPlayerId();
         bool playing = lobby["playing"].get<bool>();
@@ -412,6 +414,51 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, const GameClient* network, b
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     return action;
+}
+
+void GameUI::DrawVoice(GameClient* network, VoiceChat* voice, bool floating){
+    if(!voice || !network) return;
+    if(floating){
+        ImVec2 screen = ImGui::GetIO().DisplaySize;
+        const float scale = ViewLayout::Calculate(screen.x, screen.y).scale;
+        ImGui::SetNextWindowPos(ImVec2(screen.x - 12 * scale, 12 * scale), ImGuiCond_Always, ImVec2(1, 0));
+        ImGui::SetNextWindowSize(ImVec2(224 * scale, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 6));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5, 4));
+        ImGui::Begin("Voice", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
+            | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::SetWindowFontScale(std::clamp(scale, 0.8f, 1.25f));
+    }
+    else ImGui::TextDisabled("VOICE");
+    ImGui::BeginDisabled(!voice->Connected());
+    if(ImGui::SmallButton(voice->MicrophoneMuted() ? "Mic: muted" : "Mic: OPEN"))
+        voice->SetMicrophone(!voice->MicrophoneMuted());
+    ImGui::SameLine();
+    if(ImGui::SmallButton(voice->TransmittingTeam() ? "All" : "[All]")) voice->SelectTransmit(*network, false);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!voice->TeamEnabled());
+    if(ImGui::SmallButton(voice->TransmittingTeam() ? "[Team]" : "Team")) voice->SelectTransmit(*network, true);
+    ImGui::EndDisabled();
+    ImGui::TextDisabled("Hear:"); ImGui::SameLine();
+    if(ImGui::SmallButton(voice->AllMuted() ? "All: off" : "All: on")) voice->SetIncomingAll(!voice->AllMuted());
+    ImGui::SameLine();
+    if(ImGui::SmallButton(voice->TeamMuted() ? "Team: off" : "Team: on")) voice->SetIncomingTeam(!voice->TeamMuted());
+    ImGui::EndDisabled();
+    if(!voice->Connected() && voice->Available()){
+        if(ImGui::SmallButton("Retry voice")) voice->Retry();
+        ImGui::SameLine();
+    }
+    if(floating){
+        const std::string label = voice->Connected() ? voice->Status() : "Voice not connected";
+        ImGui::TextDisabled("%s", label.c_str());
+        if(ImGui::IsItemHovered()) ImGui::SetTooltip("%s", voice->Status().c_str());
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+    }
+    else{
+        ImGui::TextWrapped("%s", voice->Status().c_str());
+        ImGui::Separator();
+    }
 }
 
 MenuAction GameUI::DrawLeaveConfirmation(const GameClient* network){

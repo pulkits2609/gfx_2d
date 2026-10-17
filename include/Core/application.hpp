@@ -10,6 +10,7 @@
 #include "Game/game.hpp"
 #include "UI/gameUI.hpp"
 #include "Network/gameClient.hpp"
+#include "Network/voiceChat.hpp"
 #include<array>
 #include<cstddef>
 #include<memory>
@@ -27,6 +28,7 @@ class Application{
         KeyboardInput keyboardinput;
         Game game;
         GameUI hud;
+        VoiceChat voice;
         std::unique_ptr<GameClient> network;
         MenuSettings menu;
         MenuAction pendingAction = MenuAction::None;
@@ -63,7 +65,8 @@ class Application{
 
     public:
         explicit Application(int numberOfTeams = 4, const std::string& serverHost = "",
-            unsigned short controlPort = Protocol::ControlPort, const std::string& name = "Player 1");
+            unsigned short controlPort = Protocol::ControlPort, const std::string& name = "Player 1",
+            const std::string& voiceClient = VoiceProcess::DefaultExecutable());
         void RunApplication();
         void GameLoop();
 };

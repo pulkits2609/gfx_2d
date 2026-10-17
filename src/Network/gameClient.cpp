@@ -73,6 +73,9 @@ void GameClient::Disconnect(){
     udpReady = false;
     ResetGameplay();
     lobby = nullptr;
+    voiceTransmit = nullptr;
+    voiceNotice.clear();
+    voiceBoundSession = 0;
     publicLobbies.clear();
     listingReceived = false;
     status = "OFFLINE";
@@ -195,6 +198,24 @@ void GameClient::HandleMessage(){
         }
         results = std::move(message);
     }
+    else if(type == "voice_error"){
+        voiceNotice = message.value("message", "Voice request failed");
+    }
+    else if(type == "voice_transmit"){
+        auto validId = [&](const char* key){ return message.contains(key) && message[key].is_number_unsigned()
+            && message[key] > 0 && message[key].get<std::uint64_t>() <= UINT32_MAX; };
+        if(validId("session") && validId("group") && validId("channel") && message.contains("instance")
+            && message["instance"].is_string() && message["instance"].get_ref<const std::string&>().size() == 16)
+            voiceTransmit = std::move(message);
+        else voiceNotice = "Invalid voice channel approval";
+    }
+    else if(type == "voice_bound"){
+        if(lobby.is_object() && lobby.contains("voice") && message.contains("session")
+            && message["session"].is_number_unsigned() && message["session"] > 0 && message["session"].get<std::uint64_t>() <= UINT32_MAX
+            && message.value("instance", Protocol::Json()) == lobby["voice"]["instance"]
+            && message.value("group", Protocol::Json()) == lobby["voice"]["group"])
+            voiceBoundSession = message["session"].get<std::uint32_t>();
+    }
     else if(type == "notice"){
         notice = message.value("message", std::string("Request rejected"));
     }
@@ -268,6 +289,9 @@ void GameClient::HandleMessage(){
     }
     else if(type == "lobby_left" || type == "lobby_closed"){
         lobby = nullptr;
+        voiceTransmit = nullptr;
+        voiceNotice.clear();
+        voiceBoundSession = 0;
         ResetGameplay();
         status = RejoinSecondsLeft() > 0 ? "CONNECTED / REJOIN AVAILABLE" : "CONNECTED / HOME";
         notice = message.value("message", std::string());
@@ -356,6 +380,20 @@ void GameClient::SetReady(bool ready){
 }
 
 void GameClient::StartMatch(){ Send(Protocol::Message("start_match")); }
+
+void GameClient::BindVoice(std::uint32_t session, const std::string& instance, std::uint32_t group){
+    auto message = Protocol::Message("voice_bind");
+    message.update({{"session", session}, {"instance", instance}, {"group", group}});
+    Send(message);
+}
+
+void GameClient::SelectVoiceTransmit(bool team){
+    if(!lobby.is_object() || !lobby.contains("voice")) return;
+    auto message = Protocol::Message("voice_transmit");
+    message.update({{"group", lobby["voice"]["group"]}, {"instance", lobby["voice"]["instance"]},
+        {"channel", team ? "team" : "all"}});
+    Send(message);
+}
 void GameClient::LeaveLobby(){ Send(Protocol::Message("leave_lobby")); }
 
 void GameClient::ReturnToLobby(){ Send(Protocol::Message("return_lobby")); }
