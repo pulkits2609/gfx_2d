@@ -305,13 +305,16 @@ void Application::DrawPlayers(const glm::mat4& projection){
         glm::vec3 teamColor = GameUI::TeamColor(player.team);
         float aimAngle = std::atan2(player.aimDirection.y, player.aimDirection.x);
 
-        //reuse the team's mesh; collision always uses the shared circular hitbox
+        //reuse the chosen team mesh; collision always uses the shared circular hitbox
         transforms[i].SetPosition({player.position.x, player.position.y});
         transforms[i].SetRotation(aimAngle - halfPi);
         transforms[i].SetScale({MatchRules::PlayerVisualScale, MatchRules::PlayerVisualScale});
         glm::vec3 bodyColor = player.IsSpawnProtected(game.GetTime())
             ? glm::vec3(0.85f, 0.87f, 0.84f) : teamColor;
-        renderer.Draw(meshes[static_cast<std::size_t>(player.team)], shader, transforms[i], projection, bodyColor);
+        int shape = player.team;
+        if(!offlinePractice && network && network->GetLobby().is_object())
+            shape = network->GetLobby()["shapes"][player.team].get<int>();
+        renderer.Draw(meshes[static_cast<std::size_t>(shape)], shader, transforms[i], projection, bodyColor);
 
         if(i != selectedPlayer) continue;
         glm::vec2 forward = player.aimDirection;

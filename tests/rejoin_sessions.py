@@ -110,6 +110,8 @@ try:
         room = host.request('create_lobby', teams=2, minutes=minutes)
         for client in (guest, teammate):
             assert client.request('join_lobby', code=room['code'])['type'] == 'lobby'
+        for client in (host, guest, teammate):
+            client.request('set_ready', ready=True)
         match = host.request('start_match')
         assert match['playing']
         for client in (host, guest, teammate):

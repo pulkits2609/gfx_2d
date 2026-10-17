@@ -91,6 +91,8 @@ class GameClient{
         void JoinPublicLobby(std::uint64_t lobbyId);
         void JoinLobby(const std::string& code);
         void ChooseTeam(int team);
+        void ChooseTeamShape(int team, int shape);
+        void SetReady(bool ready);
         void StartMatch();
         void LeaveLobby();
         void ReturnToLobby();

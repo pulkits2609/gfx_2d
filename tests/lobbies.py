@@ -72,8 +72,25 @@ try:
         assert request(outsider, 'join_lobby', code=code)['type'] == 'notice', 'full lobby'
         assert request(members[1], 'start_match')['type'] == 'notice', 'host only'
         assert request(members[1], 'choose_team', team=0)['type'] == 'notice', 'full team'
+        assert request(host, 'start_match')['type'] == 'notice', 'all players must ready up'
+        assert request(host, 'set_ready', ready='yes')['type'] == 'notice'
+        assert request(members[1], 'choose_shape', team=0, shape=2)['type'] == 'notice', 'host shapes only'
+        assert request(host, 'choose_shape', team=teams, shape=0)['type'] == 'notice'
+        assert request(host, 'choose_shape', team=0, shape=4)['type'] == 'notice'
+        for player in members:
+            assert request(player, 'set_ready', ready=True)['type'] == 'lobby'
+        changed = request(host, 'choose_shape', team=0, shape=1)
+        assert changed['shapes'][:2] == [1, 0], 'shared team shapes should swap'
+        assert not any(member['ready'] for member in changed['members']), 'shape change resets ready states'
+        for player in members:
+            request(player, 'set_ready', ready=True)
+        assert request(members[1], 'set_ready', ready=False)['type'] == 'lobby'
+        assert request(host, 'start_match')['type'] == 'notice', 'unready player blocks start'
+        request(members[1], 'set_ready', ready=True)
         started = request(host, 'start_match')
         assert started['playing']
+        assert request(host, 'choose_shape', team=0, shape=3)['type'] == 'notice', 'locked cosmetics'
+        assert request(host, 'set_ready', ready=False)['type'] == 'notice', 'locked ready states'
         assert request(outsider, 'join_lobby', code=code)['type'] == 'notice', 'no late joins'
         assert request(host, 'choose_team', team=1)['type'] == 'notice', 'locked teams'
         assert request(host, 'leave_lobby')['type'] == 'lobby_left'

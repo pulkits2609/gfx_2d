@@ -12,6 +12,7 @@ struct LobbyMember{
     std::string name;
     int team = 0;
     bool connected = true;
+    bool ready = false;
 };
 
 struct RejoinReservation{
@@ -26,6 +27,7 @@ struct Lobby{
     std::string code; //only private lobbies have a join code
     std::uint64_t hostId = 0;
     int teams = 2;
+    std::array<int, 4> shapes{0, 1, 2, 3};
     int minutes = LobbyRules::DefaultMinutes;
     bool playing = false;
     bool finished = false;

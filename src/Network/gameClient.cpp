@@ -234,12 +234,24 @@ void GameClient::HandleMessage(){
             || message["members"].empty() || message["members"].size() > 9){
             Fail("Invalid lobby state"); return;
         }
+        if(!message.contains("shapes") || !message["shapes"].is_array() || message["shapes"].size() != 4){
+            Fail("Invalid team shapes"); return;
+        }
+        std::array<bool, 4> used{};
+        for(const auto& shape : message["shapes"]){
+            if(!shape.is_number_integer() || shape < 0 || shape > 3 || used[shape.get<int>()]){
+                Fail("Invalid team shape choice"); return;
+            }
+            used[shape.get<int>()] = true;
+        }
         for(const auto& member : message["members"]){
             if(!member.is_object() || !member.contains("playerId") || !member["playerId"].is_number_unsigned()
                 || !member.contains("name") || !member["name"].is_string()
                 || !Protocol::ValidName(member["name"].get<std::string>())
                 || !member.contains("team") || !member["team"].is_number_integer()
-                || member["team"] < 0 || member["team"] >= message["teams"]){
+                || member["team"] < 0 || member["team"] >= message["teams"]
+                || !member.contains("ready") || !member["ready"].is_boolean()
+                || !member.contains("connected") || !member["connected"].is_boolean()){
                 Fail("Invalid lobby member"); return;
             }
         }
@@ -327,6 +339,19 @@ void GameClient::JoinPublicLobby(std::uint64_t lobbyId){
 void GameClient::ChooseTeam(int team){
     auto message = Protocol::Message("choose_team");
     message["team"] = team;
+    Send(message);
+}
+
+void GameClient::ChooseTeamShape(int team, int shape){
+    auto message = Protocol::Message("choose_shape");
+    message["team"] = team;
+    message["shape"] = shape;
+    Send(message);
+}
+
+void GameClient::SetReady(bool ready){
+    auto message = Protocol::Message("set_ready");
+    message["ready"] = ready;
     Send(message);
 }
 

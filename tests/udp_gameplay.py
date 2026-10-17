@@ -102,6 +102,8 @@ try:
     a.register()
     lobby = a.control('create_lobby', teams=2, minutes=1)
     b.control('join_lobby', code=lobby['code'])
+    a.control('set_ready', ready=True)
+    b.control('set_ready', ready=True)
     assert a.control('start_match')['type'] == 'notice', 'UDP registration required'
     b.register()
     started = a.control('start_match')
@@ -202,6 +204,8 @@ try:
         assert b.control('return_lobby')['type'] == 'notice'
         returned = a.control('return_lobby')
         assert not returned['playing']
+        a.control('set_ready', ready=True)
+        b.control('set_ready', ready=True)
         restarted = a.control('start_match')
         assert restarted['match'] != a.match, 'new match needs a new packet identity'
         a.match = b.match = restarted['match']

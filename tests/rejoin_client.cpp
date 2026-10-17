@@ -27,10 +27,22 @@ int main(int argc, char* argv[]){
             if(!ready()) throw std::runtime_error("C++ rejoin client timed out");
         };
         wait([&]{ return host.UDPReady() && guest->UDPReady(); });
-        host.CreateLobby(2, 3);
+        host.CreateLobby(2, 3, true);
         wait([&]{ return host.GetLobby().is_object(); });
-        guest->JoinLobby(host.GetLobby()["code"].get<std::string>());
+        guest->FetchLobbies();
+        wait([&]{ return guest->HasLobbyList(); });
+        if(guest->GetPublicLobbies().size() != 1 || host.GetLobby()["code"] != "")
+            throw std::runtime_error("Public discovery leaked or required a code");
+        host.ChooseTeamShape(0, 3);
+        wait([&]{ return host.GetLobby()["shapes"][0] == 3; });
+        guest->JoinPublicLobby(guest->GetPublicLobbies()[0]["lobbyId"].get<std::uint64_t>());
         wait([&]{ return host.GetLobby()["members"].size() == 2 && guest->GetLobby().is_object(); });
+        if(guest->GetLobby()["shapes"][0] != 3) throw std::runtime_error("Shared team cosmetic was lost");
+        host.SetReady(true); guest->SetReady(true);
+        wait([&]{
+            for(const auto& member : host.GetLobby()["members"]) if(!member["ready"].get<bool>()) return false;
+            return true;
+        });
         host.StartMatch();
         wait([&]{ return host.HasSnapshot() && guest->HasSnapshot(); });
         //Exercise the actual client's home-screen rejoin offer after a graceful leave.

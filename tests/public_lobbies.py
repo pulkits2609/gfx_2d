@@ -73,6 +73,8 @@ try:
     assert request(extra[-1], 'join_public', lobbyId=room['lobbyId'])['type'] == 'notice', 'full public lobby'
     for player in extra[:6]:
         assert request(player, 'leave_lobby')['type'] == 'lobby_left'
+    request(host, 'set_ready', ready=True)
+    request(browser, 'set_ready', ready=True)
     assert request(host, 'start_match')['playing']
     assert request(private_host, 'list_lobbies')['lobbies'] == [], 'running match was listed'
     assert request(private_host, 'leave_lobby')['type'] == 'lobby_left'

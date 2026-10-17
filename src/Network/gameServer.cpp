@@ -264,6 +264,7 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
     auto session = sessions.at(id);
     std::string type = message["type"].get<std::string>();
     if(type != "create_lobby" && type != "join_lobby" && type != "choose_team"
+        && type != "set_ready" && type != "choose_shape"
         && type != "list_lobbies" && type != "join_public"
         && type != "start_match" && type != "leave_lobby" && type != "return_lobby" && type != "rejoin_match") return false;
     auto reject = [&](const std::string& reason){
@@ -361,6 +362,7 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
         for(const auto& member : lobby.members) counts[member.team]++;
         int team = static_cast<int>(std::min_element(counts.begin(), counts.begin() + lobby.teams) - counts.begin());
         lobby.members.push_back({id, session->name, team});
+        for(auto& member : lobby.members) member.ready = false;
         reservations.erase(session->rejoinToken);
         session->lobbyId = lobby.id;
         BroadcastLobby(lobby);
@@ -374,13 +376,32 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
         lobby.playing = false;
         lobby.finished = false;
         lobby.game.reset();
+        for(auto& member : lobby.members) member.ready = false;
         lobby.members.erase(std::remove_if(lobby.members.begin(), lobby.members.end(),
             [](const LobbyMember& member){ return !member.connected; }), lobby.members.end());
         BroadcastLobby(lobby);
         return true;
     }
-    if(lobby.playing){ reject("Teams are locked during the match"); return true; }
-    if(type == "choose_team"){
+    if(lobby.playing){ reject("Lobby choices are locked during the match"); return true; }
+    if(type == "set_ready"){
+        if(!message.contains("ready") || !message["ready"].is_boolean()){
+            reject("Ready must be true or false"); return true;
+        }
+        for(auto& member : lobby.members) if(member.playerId == id) member.ready = message["ready"].get<bool>();
+    }
+    else if(type == "choose_shape"){
+        if(lobby.hostId != id){ reject("Only the host can choose team shapes"); return true; }
+        if(!message.contains("team") || !message["team"].is_number_integer() || message["team"] < 0 || message["team"] >= lobby.teams
+            || !message.contains("shape") || !message["shape"].is_number_integer() || message["shape"] < 0 || message["shape"] > 3){
+            reject("Choose triangle, square, circle or hexagon for a team"); return true;
+        }
+        int team = message["team"].get<int>(), shape = message["shape"].get<int>();
+        //Swap the old shape into its previous slot, so teams stay visually distinct.
+        auto previous = std::find(lobby.shapes.begin(), lobby.shapes.end(), shape);
+        std::iter_swap(lobby.shapes.begin() + team, previous);
+        for(auto& member : lobby.members) member.ready = false;
+    }
+    else if(type == "choose_team"){
         if(!message.contains("team") || !message["team"].is_number_integer()
             || message["team"] < 0 || message["team"] >= lobby.teams){ reject("Invalid team"); return true; }
         int team = message["team"].get<int>();
@@ -391,7 +412,10 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
         if(member->team != team && count >= LobbyRules::PlayersPerTeam(lobby.teams)){
             reject("That team is full"); return true;
         }
-        member->team = team;
+        if(member->team != team){
+            member->team = team;
+            for(auto& player : lobby.members) player.ready = false;
+        }
     }
     else if(type == "start_match"){
         if(lobby.hostId != id){ reject("Only the host can start the match"); return true; }
@@ -400,6 +424,7 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
             [hostTeam](const LobbyMember& player){ return player.team != hostTeam; });
         if(!opponent){ reject("At least one player must be on an opposing team"); return true; }
         for(const auto& member : lobby.members){
+            if(!member.ready){ reject("Every player must be ready before the host starts"); return true; }
             auto other = sessions.at(member.playerId);
             if(!other->udpReady){ reject("Waiting for every player's gameplay connection"); return true; }
         }
@@ -430,12 +455,13 @@ void GameServer::BroadcastLobby(const Lobby& lobby){
     message["code"] = lobby.code;
     message["hostId"] = lobby.hostId;
     message["teams"] = lobby.teams;
+    message["shapes"] = lobby.shapes;
     message["minutes"] = lobby.minutes;
     message["playing"] = lobby.playing;
     message["match"] = lobby.match;
     message["members"] = Protocol::Json::array();
     for(const auto& member : lobby.members)
-        message["members"].push_back({{"playerId", member.playerId}, {"name", member.name}, {"team", member.team}, {"connected", member.connected}});
+        message["members"].push_back({{"playerId", member.playerId}, {"name", member.name}, {"team", member.team}, {"connected", member.connected}, {"ready", member.ready}});
     //Copy recipients: a slow client's full queue may close it and change the lobby.
     std::vector<std::shared_ptr<ControlSession>> recipients;
     for(const auto& member : lobby.members){
@@ -485,6 +511,7 @@ void GameServer::LeaveLobby(std::uint64_t id){
         }
         else{
             auto& members = lobby.members;
+            for(auto& member : members) member.ready = false;
             members.erase(std::remove_if(members.begin(), members.end(),
                 [id](const LobbyMember& player){ return player.playerId == id; }), members.end());
         }

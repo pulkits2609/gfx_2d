@@ -32,6 +32,13 @@ int main(int argc, char* argv[]){
                 requested = true;
             }
             const auto& lobby = client.GetLobby();
+            if(lobby.is_object() && !lobby["playing"].get<bool>() && now >= nextStart){
+                bool ownReady = false;
+                for(const auto& member : lobby["members"])
+                    if(member["playerId"] == client.GetPlayerId()) ownReady = member["ready"].get<bool>();
+                if(!ownReady) client.SetReady(true);
+                if(!host) nextStart = now + std::chrono::milliseconds(300);
+            }
             if(host && lobby.is_object()){
                 if(!printed){ std::cout << "CODE " << lobby["code"].get<std::string>() << std::endl; printed = true; }
                 if(lobby["members"].size() == 2 && !lobby["playing"].get<bool>() && now >= nextStart){
