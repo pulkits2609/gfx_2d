@@ -79,6 +79,16 @@ UDP send only means the OS accepted it; it does not prove that a remote player
 received it. Invalid UDP warnings are rate-limited and session/rejoin tokens are
 not printed. Debug clients also print their own connection failure reason.
 
+The client keeps its gameplay UDP route alive with a registration packet every
+two seconds, including while waiting in a lobby. When a match starts or snapshots
+stall, it sends `refresh_gameplay` over its existing TCP session. The server
+replies with `gameplay_refresh` and allows a UDP registration from a changed
+port for three seconds; the session token and TCP peer address must still match.
+The previous endpoint loses access after the change. Keepalives never refresh
+the gameplay input timeout, so missing player input still stops movement and
+eventually disconnects the player. Both the server and clients need this update
+to recover from router port changes.
+
 ## Voice chat
 
 Voice uses the separate realtime-voice applications (protocol 2, integration

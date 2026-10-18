@@ -23,7 +23,9 @@ class GameClient{
         boost::asio::steady_timer registrationTimer{context};
         std::array<std::uint8_t, GameplayPackets::MaximumSize + 1> datagram{};
         bool udpReady = false;
+        bool gameplayRefreshPending = false;
         unsigned registrationAttempts = 0;
+        double nextGameplayRefresh = 0;
         bool hasSnapshot = false;
         GameplayPackets::Snapshot latest;
         std::deque<GameplayPackets::Snapshot> snapshots;
@@ -72,6 +74,7 @@ class GameClient{
         void Fail(const std::string& reason);
         void StartGameplay(unsigned short port);
         void RegisterGameplay();
+        void RefreshGameplay();
         void ReceiveGameplay();
         void AcceptSnapshot(GameplayPackets::Snapshot snapshot);
         void ResetGameplay();

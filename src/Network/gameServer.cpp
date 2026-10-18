@@ -53,6 +53,7 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
         std::uint64_t lobbyId = 0;
         bool closing = false;
         bool udpReady = false;
+        std::chrono::steady_clock::time_point udpRefreshUntil{};
         udp::endpoint gameplayEndpoint;
         std::deque<GameplayPackets::InputCommand> inputs;
         PlayerInput lastInput;
@@ -180,6 +181,13 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
             auto response = Protocol::Message("error");
             if(type == "ping"){
                 response["type"] = "pong";
+            }
+            else if(type == "refresh_gameplay"){
+                //A router may assign a new UDP port after an idle lobby. Only
+                //the owner of this TCP session may briefly allow re-registration.
+                udpRefreshUntil = now + std::chrono::seconds(3);
+                response["type"] = "gameplay_refresh";
+                GFX_DEBUG_LOG("[UDP REFRESH] player=" << id << " authorized over TCP");
             }
             else if(type == "players"){
                 response["type"] = "players";
@@ -922,8 +930,13 @@ void GameServer::HandleGameplay(std::size_t size){
         ErrorCode error;
         auto tcpPeer = session->socket.remote_endpoint(error);
         if(error || sender.address() != tcpPeer.address()){ reject("registration address differs from TCP address"); return; }
-        if(session->udpReady && sender != session->gameplayEndpoint){ reject("registered UDP endpoint changed"); return; }
-        GFX_DEBUG_LOG("[UDP REGISTERED] player=" << session->id << " endpoint=" << sender << " first=" << !session->udpReady);
+        bool changed = session->udpReady && sender != session->gameplayEndpoint;
+        if(changed && now >= session->udpRefreshUntil){ reject("registered UDP endpoint changed without TCP approval"); return; }
+        if(changed)
+            GFX_DEBUG_LOG("[UDP ENDPOINT CHANGED] player=" << session->id << " previous=" << session->gameplayEndpoint << " current=" << sender);
+        if(!session->udpReady || changed)
+            GFX_DEBUG_LOG("[UDP REGISTERED] player=" << session->id << " endpoint=" << sender << " first=" << !session->udpReady);
+        if(changed) session->udpRefreshUntil = {};
         session->gameplayEndpoint = sender;
         session->udpReady = true;
         session->lastGameplayPacket = now;

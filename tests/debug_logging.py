@@ -68,7 +68,7 @@ try:
         return client, udp, prefix, welcome['playerId']
 
     host, host_udp, prefix, host_id = connect('Logging host')
-    guest, guest_udp, _, guest_id = connect('Silent guest')
+    guest, guest_udp, guest_prefix, guest_id = connect('Silent guest')
     send(host, 'create_lobby', teams=2, minutes=3, public=True)
     room = until(host, 'lobby')
     send(guest, 'join_public', lobbyId=room['lobbyId'])
@@ -80,14 +80,18 @@ try:
     send(host, 'start_match')
     started = until(host, 'lobby', lambda item: item['playing'])
     #The host sends real inputs; the guest deliberately sends none. This must
-    #produce a useful five-second input-timeout reason, not a generic leave.
+    #produce a useful five-second input-timeout reason even with UDP keepalives.
     end = time.monotonic() + 6
     sequence = 0
+    next_keepalive = 0
     guest_removed = False
     while time.monotonic() < end and not guest_removed:
         sequence += 1
         body = struct.pack('!IBIIIBBffB', started['match'], 1, sequence, 0, 0, 1, 1, 0, 0, 0)
         host_udp.send(prefix[:3] + b'\x03' + prefix[4:] + body)
+        if time.monotonic() >= next_keepalive:
+            guest_udp.send(guest_prefix)
+            next_keepalive = time.monotonic() + 1
         if select.select([host], [], [], .03)[0]:
             item = receive(host)
             if item['type'] == 'lobby':

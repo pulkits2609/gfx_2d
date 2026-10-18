@@ -132,6 +132,19 @@ try:
     time.sleep(.15)
     assert abs(a.state()['players'][a.id]['x'] - start_x) < .0001, 'spoofed input moved player'
 
+    #Only this session's TCP connection may authorize a changed router UDP port.
+    assert a.control('refresh_gameplay')['type'] == 'gameplay_refresh'
+    impostor.send(a.prefix)
+    assert impostor.recv(1200) == a.prefix[:3] + bytes([2]) + a.prefix[4:]
+    a.udp, impostor = impostor, a.udp
+    a.input(1, sock=impostor)
+    time.sleep(.12)
+    assert abs(a.state()['players'][a.id]['x'] - start_x) < .0001, 'old endpoint retained control after refresh'
+    impostor.send(a.prefix)
+    #Drain snapshots queued before the change; the old route must not register again.
+    while select.select([impostor], [], [], .10)[0]:
+        assert impostor.recv(1200)[:4] != b'G2\x02\x02', 'TCP refresh authorization was reused'
+
     #One command moves for a short time, then missing input must stop it.
     a.input(1)
     time.sleep(.42)

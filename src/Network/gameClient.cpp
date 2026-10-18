@@ -55,8 +55,14 @@ void GameClient::Poll(){
     context.restart();
     //bound callback work per frame as well as avoiding blocking reads
     for(int i = 0; i < 32; i++) if(context.poll_one() == 0) break;
-    if(state == State::Connected && waitingSince > 0 && !hasSnapshot && Now() - waitingSince > 5)
-        Fail("The match started but no gameplay snapshot arrived");
+    if(state == State::Connected && lobby.is_object() && lobby["playing"].get<bool>()){
+        //Do not wait for a snapshot to repair the UDP route: that would leave
+        //both sides waiting when a router drops its idle lobby mapping.
+        if((!hasSnapshot && waitingSince > 0) || (hasSnapshot && !latest.finished && Now() - lastSnapshotAt > 0.75))
+            RefreshGameplay();
+        if(waitingSince > 0 && !hasSnapshot && Now() - waitingSince > 5)
+            Fail("The match started but no gameplay snapshot arrived; check the server UDP port");
+    }
 }
 
 void GameClient::Disconnect(){
@@ -73,6 +79,7 @@ void GameClient::Disconnect(){
     registrationTimer.cancel();
     gameplaySocket.close(ignored);
     udpReady = false;
+    gameplayRefreshPending = false;
     ResetGameplay();
     lobby = nullptr;
     voiceTransmit = nullptr;
@@ -301,6 +308,12 @@ void GameClient::HandleMessage(){
         status = RejoinSecondsLeft() > 0 ? "CONNECTED / REJOIN AVAILABLE" : "CONNECTED / HOME";
         notice = message.value("message", std::string());
     }
+    else if(type == "gameplay_refresh"){
+        if(gameplayRefreshPending){
+            registrationTimer.cancel();
+            RegisterGameplay();
+        }
+    }
     else if(type == "pong"){
         receivedPong = true;
     }
@@ -423,11 +436,22 @@ void GameClient::SendDatagram(const std::vector<std::uint8_t>& bytes){
 }
 
 void GameClient::RegisterGameplay(){
-    if(state != State::Connected || udpReady) return;
-    if(++registrationAttempts > 10){ Fail("UDP registration timed out; check the gameplay port"); return; }
+    if(state != State::Connected) return;
+    if(!udpReady && ++registrationAttempts > 10){ Fail("UDP registration timed out; check the gameplay port"); return; }
+    //Keep the outbound router mapping alive even in menus, lobbies and results.
+    //These packets do not count as gameplay inputs or extend the input timeout.
     SendDatagram(GameplayPackets::Registration(GameplayPackets::Type::Register, {playerId, sessionToken}));
-    registrationTimer.expires_after(std::chrono::milliseconds(500));
+    registrationTimer.expires_after(std::chrono::milliseconds(!udpReady || gameplayRefreshPending ? 500 : 2000));
     registrationTimer.async_wait([this](ErrorCode error){ if(!error) RegisterGameplay(); });
+}
+
+void GameClient::RefreshGameplay(){
+    if(state != State::Connected || Now() < nextGameplayRefresh) return;
+    nextGameplayRefresh = Now() + 1;
+    gameplayRefreshPending = true;
+    //Only our existing TCP session can authorize a changed UDP port. Wait for
+    //its reply before registering, because TCP and UDP may arrive out of order.
+    Send(Protocol::Message("refresh_gameplay"));
 }
 
 void GameClient::ReceiveGameplay(){
@@ -438,10 +462,12 @@ void GameClient::ReceiveGameplay(){
         if(!error && GameplayPackets::Decode(datagram.data(), size, packet)
             && packet.identity.id == playerId && packet.identity.token == sessionToken){
             if(packet.type == GameplayPackets::Type::Registered){
-                GFX_DEBUG_LOG("[CLIENT UDP READY] player=" << playerId << " server=" << gameplaySocket.remote_endpoint());
+                if(!udpReady || gameplayRefreshPending)
+                    GFX_DEBUG_LOG("[CLIENT UDP READY] player=" << playerId << " server=" << gameplaySocket.remote_endpoint());
+                if(!udpReady) status = "ONLINE / UDP READY";
                 udpReady = true;
-                registrationTimer.cancel();
-                status = "ONLINE / UDP READY";
+                gameplayRefreshPending = false;
+                registrationAttempts = 0;
             }
             else if(packet.type == GameplayPackets::Type::Snapshot && udpReady) AcceptSnapshot(std::move(packet.snapshot));
         }
