@@ -58,7 +58,7 @@ void GameClient::Poll(){
     if(state == State::Connected && lobby.is_object() && lobby["playing"].get<bool>()){
         //Do not wait for a snapshot to repair the UDP route: that would leave
         //both sides waiting when a router drops its idle lobby mapping.
-        if((!hasSnapshot && waitingSince > 0) || (hasSnapshot && !latest.finished && Now() - lastSnapshotAt > 0.75))
+        if((!hasSnapshot && waitingSince > 0) || (hasSnapshot && !latest.finished && Now() - lastSnapshotAt > std::max(0.75, tickStep * 2)))
             RefreshGameplay();
         if(waitingSince > 0 && !hasSnapshot && Now() - waitingSince > 5)
             Fail("The match started but no gameplay snapshot arrived; check the server UDP port");
@@ -168,6 +168,12 @@ void GameClient::HandleMessage(){
         rejoinToken = message["rejoinToken"].get<std::string>();
         if(!message.contains("gameplayPort") || !message["gameplayPort"].is_number_unsigned()
             || message["gameplayPort"] == 0 || message["gameplayPort"] > 65535){ Fail("Invalid gameplay port"); return; }
+        //The server chooses the simulation step; prediction and input sending
+        //must use the same value rather than assuming every server runs at 30 Hz.
+        auto rate = message.value("tickRate", Protocol::Json(MatchRules::DefaultTickRate));
+        if(!rate.is_number_unsigned() || rate == 0 || rate > MatchRules::MaximumTickRate){ Fail("Invalid server tick rate"); return; }
+        tickRate = rate.get<unsigned>();
+        tickStep = 1.0 / tickRate;
         state = State::Connected;
         StartGameplay(message["gameplayPort"].get<unsigned short>());
         if(state == State::Failed) return;
@@ -516,8 +522,8 @@ void GameClient::AcceptSnapshot(GameplayPackets::Snapshot snapshot){
     predicted = snapshot.state.players[slot];
     predictionTime = snapshot.state.time;
     for(const auto& command : pendingInputs){
-        predictionTime += MatchRules::ServerStep;
-        Game::PredictMovement(predicted, command.input, MatchRules::ServerStep, predictionTime);
+        predictionTime += tickStep;
+        Game::PredictMovement(predicted, command.input, tickStep, predictionTime);
     }
     Player preview = predicted;
     Game::PredictMovement(preview, previewInput, inputAccumulator, predictionTime + inputAccumulator);
@@ -530,7 +536,7 @@ void GameClient::AcceptSnapshot(GameplayPackets::Snapshot snapshot){
     if(snapshots.size() > 32) snapshots.pop_front();
     lastSnapshotAt = Now();
     hasSnapshot = true;
-    status = "ONLINE / 30 TICK / PREDICTION";
+    status = "ONLINE / " + std::to_string(tickRate) + " TICK / PREDICTION";
 }
 
 void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
@@ -538,7 +544,7 @@ void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
     previewInput = input;
     double age = Now() - lastSnapshotAt;
     if(age > 5){ Fail("Gameplay snapshots timed out"); return; }
-    if(age > 1){ status = "WAITING FOR GAMEPLAY SNAPSHOTS"; return; }
+    if(age > std::max(1.0, tickStep * 2)){ status = "WAITING FOR GAMEPLAY SNAPSHOTS"; return; }
     reloadPending = reloadPending || input.reload;
     if(!latest.finished){
         Player shooter = predicted;
@@ -546,8 +552,8 @@ void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
         shotPreview.Update(shooter, input, ownSlot, predictionTime + inputAccumulator, Now());
     }
     inputAccumulator += std::clamp(deltaTime, 0.0, 0.25);
-    while(inputAccumulator + 0.000001 >= MatchRules::ServerStep && !latest.finished){
-        if(pendingInputs.size() >= 128){ Fail("Server stopped acknowledging inputs"); return; }
+    while(inputAccumulator + 0.000001 >= tickStep && !latest.finished){
+        if(pendingInputs.size() >= std::max(128u, tickRate * 5)){ Fail("Server stopped acknowledging inputs"); return; }
         GameplayPackets::InputCommand command;
         command.sequence = ++sequence;
         if(reloadPending){ ++reloadCounter; reloadPending = false; }
@@ -555,7 +561,7 @@ void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
         command.shot = shotPreview.GetRequest();
         command.input = input;
         if(GameplayPackets::Newer(command.shot, lastSentShot)){
-            //A click released between two 30 Hz input ticks still needs to reach the server.
+            //A click released between two input ticks still needs to reach the server.
             command.input.shoot = command.input.hasAim = true;
             command.input.aimPosition = shotPreview.GetAim();
             lastSentShot = command.shot;
@@ -568,9 +574,9 @@ void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
         auto begin = pendingInputs.size() > 4 ? pendingInputs.end() - 4 : pendingInputs.begin();
         for(auto it = begin; it != pendingInputs.end(); ++it) recent.push_back(*it);
         SendDatagram(GameplayPackets::Inputs({playerId, sessionToken}, latest.match, recent));
-        predictionTime += MatchRules::ServerStep;
-        Game::PredictMovement(predicted, input, MatchRules::ServerStep, predictionTime);
-        inputAccumulator -= MatchRules::ServerStep;
+        predictionTime += tickStep;
+        Game::PredictMovement(predicted, input, tickStep, predictionTime);
+        inputAccumulator -= tickStep;
     }
     if(latest.finished) inputAccumulator = 0;
     RenderGameplay(deltaTime, input);

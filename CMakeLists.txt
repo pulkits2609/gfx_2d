@@ -221,6 +221,15 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/two_clients.py
             $<TARGET_FILE:gfx_server> $<TARGET_FILE:gameplay_test_client>)
         set_tests_properties(two_clients PROPERTIES TIMEOUT 35)
+        foreach(tick_rate 60 180)
+            add_test(NAME two_clients_${tick_rate} COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/two_clients.py
+                $<TARGET_FILE:gfx_server> $<TARGET_FILE:gameplay_test_client> --tick-rate ${tick_rate})
+            set_tests_properties(two_clients_${tick_rate} PROPERTIES TIMEOUT 35)
+        endforeach()
+        add_test(NAME tick_rate_options COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/tick_rate_options.py $<TARGET_FILE:gfx_server>)
+        set_tests_properties(tick_rate_options PROPERTIES TIMEOUT 25)
         add_test(NAME udp_recovery COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/udp_recovery.py
             $<TARGET_FILE:gfx_server> $<TARGET_FILE:gameplay_test_client>)

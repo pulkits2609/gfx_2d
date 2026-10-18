@@ -170,6 +170,7 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
                 catch(const std::exception&){ Reject("Could not create session"); return; }
                 response["name"] = name;
                 response["gameplayPort"] = server.gameplaySocket.local_endpoint().port();
+                response["tickRate"] = server.tickRate;
                 welcomed = true;
                 GFX_DEBUG_LOG("[WELCOME] player=" << id << " name=" << std::quoted(name)
                     << " gameplay_port=" << server.gameplaySocket.local_endpoint().port());
@@ -245,8 +246,10 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
 };
 
 GameServer::GameServer(boost::asio::io_context& io, const std::string& address, unsigned short port,
-    unsigned short gameplayPort, VoiceServerSettings voiceSettings):context(io), acceptor(io), gameplaySocket(io), tickTimer(io),
+    unsigned short gameplayPort, VoiceServerSettings voiceSettings, unsigned simulationTickRate):context(io), acceptor(io), gameplaySocket(io), tickTimer(io),
+    tickRate(simulationTickRate), tickStep(1.0 / std::max(1u, simulationTickRate)),
     voice(io, std::move(voiceSettings)), voiceShutdown(io){
+    if(tickRate == 0 || tickRate > MatchRules::MaximumTickRate) throw std::invalid_argument("Tick rate must be 1-180");
     tcp::endpoint endpoint(boost::asio::ip::make_address(address), port);
     acceptor.open(endpoint.protocol());
     acceptor.set_option(tcp::acceptor::reuse_address(true));
@@ -273,7 +276,7 @@ GameServer::~GameServer(){ Stop(); }
 void GameServer::Start(){
     if(running) return;
     running = true;
-    GFX_DEBUG_LOG("[SERVER START] tcp=" << acceptor.local_endpoint() << " udp=" << gameplaySocket.local_endpoint());
+    GFX_DEBUG_LOG("[SERVER START] tcp=" << acceptor.local_endpoint() << " udp=" << gameplaySocket.local_endpoint() << " tick_rate=" << tickRate);
     voice.Start();
     AcceptConnection();
     ReceiveGameplay();
@@ -925,7 +928,7 @@ void GameServer::HandleGameplay(std::size_t size){
         session->udpRateWindow = now;
         session->udpCount = 0;
     }
-    if(++session->udpCount > 80){ reject("packet rate limit"); return; }
+    if(++session->udpCount > std::max(80u, tickRate * 2 + 10)){ reject("packet rate limit"); return; }
     if(packet.type == GameplayPackets::Type::Register){
         ErrorCode error;
         auto tcpPeer = session->socket.remote_endpoint(error);
@@ -969,7 +972,7 @@ void GameServer::HandleGameplay(std::size_t size){
 }
 
 void GameServer::ScheduleTick(){
-    nextTick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(MatchRules::ServerStep));
+    nextTick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(tickStep));
     tickTimer.expires_at(nextTick);
     tickTimer.async_wait([this](ErrorCode error){
         if(error || !running) return;
@@ -1001,7 +1004,7 @@ void GameServer::Tick(){
                     continue;
                 }
                 session->lastInput.reload = false;
-                if(now - session->inputTime > std::chrono::duration<double>(MatchRules::InputTimeout)){
+                if(now - session->inputTime > std::chrono::duration<double>(std::max(MatchRules::InputTimeout, tickStep * 2))){
                     session->lastInput = {};
                     session->inputs.clear();
                 }
@@ -1026,13 +1029,14 @@ void GameServer::Tick(){
                 }
             }
             double remaining = lobby.minutes * 60.0 - lobby.game->GetTime();
-            lobby.game->Update(std::min(MatchRules::ServerStep, remaining), inputs);
+            lobby.game->Update(std::min(tickStep, remaining), inputs);
             lobby.finished = lobby.game->GetTime() + 0.000001 >= lobby.minutes * 60.0;
             if(lobby.finished) SendResults(lobby);
         }
-        lobby.snapshotTime += MatchRules::ServerStep;
-        if(lobby.snapshotTime + 0.000001 >= MatchRules::SnapshotStep){
-            lobby.snapshotTime -= MatchRules::SnapshotStep;
+        lobby.snapshotTime += tickStep;
+        const double snapshotStep = std::max(MatchRules::SnapshotStep, tickStep);
+        if(lobby.snapshotTime + 0.000001 >= snapshotStep){
+            lobby.snapshotTime -= snapshotStep;
             SendSnapshots(lobby);
         }
     }

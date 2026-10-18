@@ -34,7 +34,9 @@ namespace MatchRules{
 
     //local simulation runs independently of rendering
     constexpr double SimulationStep = 1.0 / 120.0;
-    constexpr double ServerStep = 1.0 / 30.0;
+    constexpr unsigned DefaultTickRate = 30;
+    constexpr unsigned MaximumTickRate = 180;
+    constexpr double ServerStep = 1.0 / DefaultTickRate;
     constexpr double SnapshotStep = 1.0 / 20.0;
     constexpr double InputTimeout = 0.25;
     constexpr double TimerTolerance = 1e-9;

@@ -41,6 +41,12 @@ Escape leaves an online match or returns offline practice to the menu. Keys
 
 ## Debug network logs
 
+Set `--tick-rate 180` when starting `gfx_server` to choose its simulation rate
+(1-180 Hz; default 30). The server tells clients the selected rate so input
+sending and movement prediction use the same step. Snapshots remain capped at
+20 Hz, with client interpolation between updates. Higher tick rates require
+more CPU and input bandwidth; all players should use the updated client.
+
 Debug builds enable `GFX_DEBUG` through CMake, following realtime-voice's
 `VOICE_DEBUG` pattern. `include/Core/debugLog.hpp` provides `GFX_DEBUG_LOG`:
 it prints timestamped messages to stderr in Debug, and compiles the messages

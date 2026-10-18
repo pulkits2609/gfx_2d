@@ -1,5 +1,6 @@
 #include"Network/gameClient.hpp"
 #include<chrono>
+#include<cmath>
 #include<iostream>
 #include<thread>
 
@@ -83,12 +84,15 @@ int main(int argc, char* argv[]){
                     remoteMoved = remoteMoved || glm::length(remote->position - remoteStart) > 0.05f;
                 }
                 if(playingFor > 2.0 && sawTwo && localMoved && remoteMoved){
+                    if(std::abs(client.GetGame().GetTime() - playingFor) > .5)
+                        throw std::runtime_error("Server clock changed speed with the tick rate");
                     if(players[client.GetOwnSlot()].lastShotId == 0)
                         throw std::runtime_error("Quick click was lost before reaching the server");
                     Protocol::Json positions = Protocol::Json::array();
                     for(const auto& player : players) if(player.active)
                         positions.push_back({{"id", player.id}, {"x", player.position.x}, {"y", player.position.y}});
                     std::cout << "STATE " << positions.dump() << std::endl;
+                    std::cout << client.GetStatus() << std::endl;
                     std::cout << "PASS " << client.GetPlayerId() << " local and remote movement synchronized" << std::endl;
                     //Keep the host session alive until the other process has also checked its view.
                     auto finish = std::chrono::steady_clock::now() + std::chrono::milliseconds(400);

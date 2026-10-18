@@ -23,6 +23,8 @@ class GameClient{
         boost::asio::steady_timer registrationTimer{context};
         std::array<std::uint8_t, GameplayPackets::MaximumSize + 1> datagram{};
         bool udpReady = false;
+        unsigned tickRate = MatchRules::DefaultTickRate;
+        double tickStep = MatchRules::ServerStep;
         bool gameplayRefreshPending = false;
         unsigned registrationAttempts = 0;
         double nextGameplayRefresh = 0;

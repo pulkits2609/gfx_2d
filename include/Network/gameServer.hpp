@@ -57,6 +57,8 @@ class GameServer{
         std::array<std::uint8_t, GameplayPackets::MaximumSize + 1> datagram{};
         boost::asio::steady_timer tickTimer;
         std::chrono::steady_clock::time_point nextTick;
+        unsigned tickRate;
+        double tickStep;
         std::chrono::steady_clock::time_point nextUdpWarning{}, nextUdpSendError{};
         std::unordered_map<std::uint64_t, std::shared_ptr<ControlSession>> sessions;
         std::unordered_map<std::uint64_t, Lobby> lobbies;
@@ -94,7 +96,8 @@ class GameServer{
 
     public:
         GameServer(boost::asio::io_context& io, const std::string& address, unsigned short port,
-            unsigned short gameplayPort = GameplayPackets::Port, VoiceServerSettings voiceSettings = {});
+            unsigned short gameplayPort = GameplayPackets::Port, VoiceServerSettings voiceSettings = {},
+            unsigned simulationTickRate = MatchRules::DefaultTickRate);
         ~GameServer();
         void Start();
         void Stop();

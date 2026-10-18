@@ -5,7 +5,7 @@ import math
 import subprocess
 import sys
 
-server = subprocess.Popen([sys.argv[1], '--port', '0', '--udp-port', '0'],
+server = subprocess.Popen([sys.argv[1], '--port', '0', '--udp-port', '0', *sys.argv[3:]],
                           stdout=subprocess.PIPE, text=True)
 processes = []
 try:
@@ -22,6 +22,9 @@ try:
     for process in processes:
         output, error = process.communicate(timeout=16)
         assert process.returncode == 0 and 'PASS ' in output, output + error
+        if '--tick-rate' in sys.argv:
+            rate = sys.argv[sys.argv.index('--tick-rate') + 1]
+            assert f'ONLINE / {rate} TICK / PREDICTION' in output, 'Client did not use the server tick rate'
         states.append({entry['id']: entry for entry in json.loads(
             next(line[6:] for line in output.splitlines() if line.startswith('STATE ')))})
         print(output.strip())
