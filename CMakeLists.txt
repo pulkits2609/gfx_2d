@@ -55,6 +55,7 @@ add_library(gfx_network STATIC src/Network/gameClient.cpp src/Network/gameServer
 target_include_directories(gfx_network SYSTEM PUBLIC ${boost_headers_SOURCE_DIR})
 target_link_libraries(gfx_network PUBLIC gfx_protocol Threads::Threads)
 target_compile_definitions(gfx_network PUBLIC BOOST_ERROR_CODE_HEADER_ONLY BOOST_SYSTEM_NO_LIB)
+target_compile_definitions(gfx_network PUBLIC $<$<CONFIG:Debug>:GFX_DEBUG>)
 if(WIN32)
     target_compile_definitions(gfx_network PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0601)
     target_link_libraries(gfx_network PUBLIC ws2_32 mswsock bcrypt)
@@ -195,6 +196,10 @@ if(BUILD_TESTING)
     set(GFX_VOICE_CLIENT_EXECUTABLE "" CACHE FILEPATH "Optional voice_client for device-free integration tests")
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME debug_logging COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/debug_logging.py $<TARGET_FILE:gfx_server>
+            $<IF:$<CONFIG:Debug>,1,0>)
+        set_tests_properties(debug_logging PROPERTIES TIMEOUT 25)
         if(GFX_VOICE_SERVER_EXECUTABLE AND GFX_VOICE_CLIENT_EXECUTABLE)
             add_test(NAME voice_integration COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/voice_integration.py $<TARGET_FILE:gfx_server>

@@ -1,4 +1,5 @@
 #include"Network/gameClient.hpp"
+#include"Core/debugLog.hpp"
 #include"Network/lobby.hpp"
 #include<algorithm>
 #include<chrono>
@@ -32,6 +33,7 @@ void GameClient::Connect(const std::string& host, unsigned short port, const std
     name = displayName;
     serverHost = host;
     serverPort = port;
+    GFX_DEBUG_LOG("[CLIENT CONNECT] server=" << host << ':' << port << " name=" << std::quoted(name));
     state = State::Connecting;
     status = "CONNECTING TCP";
     SetDeadline(5);
@@ -86,6 +88,8 @@ void GameClient::Disconnect(){
 
 void GameClient::Fail(const std::string& reason){
     if(state == State::Offline || state == State::Failed) return;
+    GFX_DEBUG_LOG("[CLIENT DISCONNECT] player=" << playerId << " server=" << serverHost << ':' << serverPort
+        << " reason=" << std::quoted(reason) << " udp_ready=" << udpReady << " has_snapshot=" << hasSnapshot);
     Disconnect();
     state = State::Failed;
     status = "OFFLINE: " + reason.substr(0, 80);
@@ -283,6 +287,7 @@ void GameClient::HandleMessage(){
         if(!lobby["playing"].get<bool>()) status = "CONNECTED / LOBBY";
         if(lobby["playing"].get<bool>() && !hasSnapshot && waitingSince == 0){
             waitingSince = Now();
+            GFX_DEBUG_LOG("[CLIENT MATCH START] player=" << playerId << " match=" << lobby["match"] << " udp_ready=" << udpReady);
             status = "MATCH STARTING / WAITING FOR SNAPSHOTS";
         }
         notice.clear();
@@ -433,6 +438,7 @@ void GameClient::ReceiveGameplay(){
         if(!error && GameplayPackets::Decode(datagram.data(), size, packet)
             && packet.identity.id == playerId && packet.identity.token == sessionToken){
             if(packet.type == GameplayPackets::Type::Registered){
+                GFX_DEBUG_LOG("[CLIENT UDP READY] player=" << playerId << " server=" << gameplaySocket.remote_endpoint());
                 udpReady = true;
                 registrationTimer.cancel();
                 status = "ONLINE / UDP READY";
@@ -474,6 +480,7 @@ void GameClient::AcceptSnapshot(GameplayPackets::Snapshot snapshot){
         if(player.id == playerId) slot = i;
     }
     if(slot == Game::PlayerCount) return;
+    if(!hasSnapshot) GFX_DEBUG_LOG("[CLIENT FIRST SNAPSHOT] player=" << playerId << " match=" << snapshot.match << " tick=" << snapshot.tick);
     glm::vec2 oldPosition = renderedGame.GetPlayers()[slot].position;
     bool sameLife = hasSnapshot && predicted.IsAlive() == snapshot.state.players[slot].IsAlive()
         && predicted.deaths == snapshot.state.players[slot].deaths

@@ -57,6 +57,7 @@ class GameServer{
         std::array<std::uint8_t, GameplayPackets::MaximumSize + 1> datagram{};
         boost::asio::steady_timer tickTimer;
         std::chrono::steady_clock::time_point nextTick;
+        std::chrono::steady_clock::time_point nextUdpWarning{}, nextUdpSendError{};
         std::unordered_map<std::uint64_t, std::shared_ptr<ControlSession>> sessions;
         std::unordered_map<std::uint64_t, Lobby> lobbies;
         std::unordered_map<std::string, RejoinReservation> reservations;
@@ -89,7 +90,7 @@ class GameServer{
         void SendResults(const Lobby& lobby);
         bool RejoinMatch(std::uint64_t id, const std::string& token);
         void ExpireReservations();
-        void SendDatagram(const std::vector<std::uint8_t>& bytes, const boost::asio::ip::udp::endpoint& endpoint);
+        bool SendDatagram(const std::vector<std::uint8_t>& bytes, const boost::asio::ip::udp::endpoint& endpoint);
 
     public:
         GameServer(boost::asio::io_context& io, const std::string& address, unsigned short port,

@@ -39,6 +39,46 @@ Escape leaves an online match or returns offline practice to the menu. Keys
 1-4 switch players only in offline practice. Build without graphics using
 `-DGFX_BUILD_CLIENT=OFF`; run checks with `ctest --test-dir build --output-on-failure`.
 
+## Debug network logs
+
+Debug builds enable `GFX_DEBUG` through CMake, following realtime-voice's
+`VOICE_DEBUG` pattern. `include/Core/debugLog.hpp` provides `GFX_DEBUG_LOG`:
+it prints timestamped messages to stderr in Debug, and compiles the messages
+and their formatting out of Release. Timestamps are UTC (`Z`).
+
+For Ninja builds, configure a separate server directory so the running game
+and the client package are not overwritten:
+
+```powershell
+cmake -S . -B build/debug-server -G Ninja -DCMAKE_BUILD_TYPE=Debug -DGFX_BUILD_CLIENT=OFF
+cmake --build build/debug-server --target gfx_server --parallel 3
+```
+
+After stopping the previous GFX server, start this build with your chosen ports:
+
+```powershell
+.\build\debug-server\gfx_server.exe --bind 0.0.0.0 --port 9999 --udp-port 9999 --voice-port 9998
+```
+
+To also save its console output for diagnosis:
+
+```powershell
+.\build\debug-server\gfx_server.exe --bind 0.0.0.0 --port 9999 --udp-port 9999 --voice-port 9998 2>&1 | Tee-Object -FilePath .\build\debug-server\server-debug.log
+```
+
+Use `-DCMAKE_BUILD_TYPE=Release` with a separate `build/release-server` directory
+for the normal build without debug diagnostics. Visual Studio generators select
+the configuration at build time using `cmake --build <directory> --config Debug`
+or `--config Release`, rather than `CMAKE_BUILD_TYPE`.
+
+The logs identify connections, explicit lobby leaves, host disbands, match starts,
+registered UDP endpoints, first snapshots, first inputs and exact disconnect
+reasons. During matches, a summary every two seconds shows input counts, snapshot
+send attempts/errors, and the age of the last UDP packet and input. A successful
+UDP send only means the OS accepted it; it does not prove that a remote player
+received it. Invalid UDP warnings are rate-limited and session/rejoin tokens are
+not printed. Debug clients also print their own connection failure reason.
+
 ## Voice chat
 
 Voice uses the separate realtime-voice applications (protocol 2, integration

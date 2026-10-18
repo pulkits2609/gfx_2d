@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 import unittest
+from collections import deque
 
 
 def wait_until(check, timeout=6):
@@ -187,6 +188,12 @@ class VoiceIntegration(unittest.TestCase):
         self.gfx_output = queue.Queue()
         self.gfx_reader = threading.Thread(target=lambda: [self.gfx_output.put(line) for line in self.gfx.stdout])
         self.gfx_reader.start()
+        self.gfx_diagnostics = deque(maxlen=200)
+        def drain_diagnostics():
+            for line in self.gfx.stderr:
+                self.gfx_diagnostics.append(line)
+        self.gfx_error_reader = threading.Thread(target=drain_diagnostics)
+        self.gfx_error_reader.start()
         deadline = time.monotonic() + 6
         while time.monotonic() < deadline:
             if 'Voice manager connected' in self.gfx_output.get(timeout=max(.01, deadline - time.monotonic())):
@@ -389,6 +396,7 @@ class VoiceIntegration(unittest.TestCase):
                     child.kill(); child.wait(timeout=3)
             if child is getattr(self, 'gfx', None) and hasattr(self, 'gfx_reader'):
                 self.gfx_reader.join(timeout=3)
+                self.gfx_error_reader.join(timeout=3)
             for stream in (child.stdin, child.stdout, child.stderr):
                 if stream and not stream.closed:
                     stream.close()

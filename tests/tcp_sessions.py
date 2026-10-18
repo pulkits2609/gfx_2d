@@ -6,6 +6,8 @@ import struct
 import subprocess
 import sys
 import time
+import threading
+from collections import deque
 
 
 def frame(message):
@@ -35,6 +37,13 @@ def message(kind, **values):
 
 server = subprocess.Popen([sys.argv[1], '--port', '0', '--udp-port', '0'], stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True)
+diagnostics = deque(maxlen=200)
+def drain_diagnostics():
+    #Debug servers print connection events; an unread pipe must not stall them.
+    for line in server.stderr:
+        diagnostics.append(line)
+diagnostic_reader = threading.Thread(target=drain_diagnostics)
+diagnostic_reader.start()
 connections = []
 try:
     line = server.stdout.readline().strip()
@@ -151,7 +160,12 @@ finally:
         connection.close()
     server.terminate()
     try:
-        server.communicate(timeout=5)
+        server.wait(timeout=5)
     except subprocess.TimeoutExpired:
         server.kill()
-        server.communicate()
+        server.wait(timeout=5)
+    diagnostic_reader.join(timeout=3)
+    server.stdout.close()
+    server.stderr.close()
+    if sys.exc_info()[0] is not None:
+        print(''.join(diagnostics), file=sys.stderr)
