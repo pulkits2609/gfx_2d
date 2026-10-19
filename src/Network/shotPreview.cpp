@@ -14,7 +14,7 @@ int ShotPreview::Ammunition(int serverAmmo) const{
 
 void ShotPreview::Update(const Player& player, const PlayerInput& input, std::size_t slot, double gameTime, double now){
     if(input.reload && player.ammunition < MatchRules::MagazineSize) reloadBlock = now + 0.5;
-    if(!input.shoot || !input.hasAim || !player.IsAlive() || player.IsSpawnProtected(gameTime)
+    if(!input.shoot || !input.hasAim || !player.IsAlive()
         || player.reloading || now < reloadBlock || now < nextFire || Ammunition(player.ammunition) == 0) return;
     glm::vec2 direction = input.aimPosition - player.position;
     if(glm::length(direction) < 0.00001f) return;

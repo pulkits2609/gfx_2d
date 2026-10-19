@@ -11,7 +11,7 @@ namespace MatchRules{
     constexpr int ShotDamage = 25;
     constexpr double FireCooldown = 0.25;
     constexpr double RespawnDelay = 3.0;
-    constexpr double SpawnProtection = 1.0;
+    constexpr double SpawnProtection = 3.0;
 
     //the same circular hitbox is used for every shape
     constexpr float PlayerRadius = 0.14f * 0.75f;

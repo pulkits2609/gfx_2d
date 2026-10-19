@@ -26,8 +26,8 @@ Game::Game(int numberOfTeams, bool localPractice):teamCount(std::clamp(numberOfT
     }
 }
 
-// Respawning restores health and position while retaining kills and deaths. Initial spawning and later respawning both provide one second of protection.
-// Protected players cannot shoot or receive damage during that period.
+// Respawning restores health and position while retaining kills and deaths.
+// Protection blocks incoming damage for three seconds; players can still fire.
 void Game::Respawn(Player& player){
     player.position = FindSpawnPosition(player);
 
@@ -35,7 +35,7 @@ void Game::Respawn(Player& player){
     player.aimDirection = glm::vec2(0.0f, 1.0f);
     player.respawnTime = 0.0;
     player.protectionEndTime = elapsedTime + MatchRules::SpawnProtection;
-    player.nextShotTime = player.protectionEndTime;
+    player.nextShotTime = elapsedTime;
     player.ammunition = MatchRules::MagazineSize;
     player.reloading = false;
     player.reloadEndTime = 0.0;
@@ -239,7 +239,7 @@ bool Game::RayHitsPlayer(
 void Game::Fire(std::size_t shooterIndex, std::uint32_t shotId){
     Player& shooter = players[shooterIndex];
     if(shotId && static_cast<std::int32_t>(shotId - shooter.lastShotId) <= 0) return;
-    if(!shooter.IsAlive() || shooter.IsSpawnProtected(elapsedTime)
+    if(!shooter.IsAlive()
         || shooter.reloading || shooter.ammunition <= 0
         || elapsedTime + MatchRules::TimerTolerance < shooter.nextShotTime
         || projectiles.size() >= MatchRules::MaximumProjectiles) return;

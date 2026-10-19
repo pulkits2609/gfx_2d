@@ -33,19 +33,37 @@ int main(){
         auto protectedShooter = ArenaGame(); auto state = protectedShooter.GetState();
         state.players[0].protectionEndTime = 10; protectedShooter.ApplyState(state);
         Tick(protectedShooter, 1, input);
-        Check(protectedShooter.GetProjectiles().empty(), "protected players cannot fire");
-        auto protectedTarget = ArenaGame(); state = protectedTarget.GetState(); state.players[1].protectionEndTime = 10;
+        Check(protectedShooter.GetProjectiles().size() == 1 && protectedShooter.GetPlayers()[0].ammunition == 29,
+            "protected players can fire");
+        Check(protectedShooter.GetPlayers()[0].protectionEndTime == 10,
+            "firing does not cancel protection");
+        Game initialSpawn(2, false); initialSpawn.AddPlayer(1, "New player", 0);
+        Check(initialSpawn.GetPlayers()[0].protectionEndTime == 3.0, "initial spawn provides three seconds of protection");
+        Tick(initialSpawn, 1, input);
+        Check(initialSpawn.GetPlayers()[0].ammunition == 29, "freshly spawned player can fire immediately");
+        Tick(initialSpawn, 88);
+        Check(initialSpawn.GetPlayers()[0].IsSpawnProtected(initialSpawn.GetTime()), "protection remains before three seconds");
+        Tick(initialSpawn, 1);
+        Check(!initialSpawn.GetPlayers()[0].IsSpawnProtected(initialSpawn.GetTime()), "protection expires after three seconds");
+        auto protectedTarget = ArenaGame(); state = protectedTarget.GetState();
+        state.players[1].protectionEndTime = state.time + MatchRules::SpawnProtection;
         protectedTarget.ApplyState(state); Tick(protectedTarget, 1, input); Tick(protectedTarget, 8);
         Check(protectedTarget.GetPlayers()[1].health == 100, "spawn protection blocks damage");
         Check(protectedTarget.GetProjectiles().empty(), "protected enemy still stops the bullet");
+        Tick(protectedTarget, 81);
+        input[0].shotId++; Tick(protectedTarget, 1, input); Tick(protectedTarget, 8);
+        Check(protectedTarget.GetPlayers()[1].health == 75, "damage resumes when protection expires");
         auto kill = ArenaGame();
         for(std::uint32_t shot = 1; shot <= 4; shot++){
             input[0].shotId = shot; Tick(kill, 1, input); Tick(kill, 8);
         }
         Check(!kill.GetPlayers()[1].IsAlive() && kill.GetPlayers()[1].deaths == 1
             && kill.GetPlayers()[0].kills == 1 && kill.GetTeamScores()[0] == 1, "death and score counted once");
-        Tick(kill, 90);
+        for(int tick = 0; tick < 90 && !kill.GetPlayers()[1].IsAlive(); tick++) Tick(kill, 1);
         Check(kill.GetPlayers()[1].IsAlive() && kill.GetPlayers()[1].IsSpawnProtected(kill.GetTime()), "respawn restores spawn protection");
+        double respawnProtectionLeft = kill.GetPlayers()[1].protectionEndTime - kill.GetTime();
+        Check(respawnProtectionLeft >= 3.0 - MatchRules::TimerTolerance && respawnProtectionLeft <= 3.0 + MatchRules::TimerTolerance,
+            "respawn also provides three seconds of protection");
         auto winner = ArenaGame(); state = winner.GetState(); state.scores = {4, 2, 1, 99}; winner.ApplyState(state);
         Check(winner.GetWinningTeam() == 0, "inactive team score is ignored");
         state.scores = {4, 4, 1, 0}; winner.ApplyState(state);

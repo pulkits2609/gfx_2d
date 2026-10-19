@@ -164,8 +164,9 @@ try:
     assert distance <= (after['time'] - before['time']) * .601 + .001, 'server tick owns movement speed'
 
     #Fire toward a moving target's current position: damage must wait for travel.
-    while a.state()['time'] < 1.1:
+    while a.state()['time'] < 3.1:
         pass
+    b.input()  #keep the stationary target connected while testing reload below
     state = a.state()
     target = state['players'][b.id]
     health = target['hp']

@@ -37,6 +37,15 @@ int main(){
         preview.Reconcile(snapshot, 0, 20.8);
         display = snapshot.state; preview.Draw(display, 0, 20.8);
         Check(display.projectiles.empty(), "rejected shot is cleaned up");
+        preview.Reset();
+        state.players[0].protectionEndTime = state.time + MatchRules::SpawnProtection;
+        preview.Update(state.players[0], input, 0, state.time, 30);
+        display = state; preview.Draw(display, 0, 30);
+        Check(preview.GetRequest() == 1 && display.projectiles.size() == 1,
+            "protected players receive immediate shot feedback");
+        Check(display.players[0].IsSpawnProtected(display.time)
+            && state.players[0].protectionEndTime == state.time + MatchRules::SpawnProtection,
+            "shot preview keeps spawn protection active");
         std::cout << "Immediate shot preview checks passed\n";
     }
     catch(const std::exception& error){ std::cerr << error.what() << '\n'; return 1; }

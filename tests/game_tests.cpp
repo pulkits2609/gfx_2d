@@ -83,7 +83,7 @@ int main(){
         Check(!weapon.GetPlayers()[0].reloading && weapon.GetPlayers()[0].ammunition == 30, "reload completes");
 
         Game travelling;
-        Step(travelling, 121);
+        Step(travelling, 361);
         inputs = {};
         inputs[0].hasAim = true;
         inputs[0].aimPosition = travelling.GetPlayers()[1].position;
@@ -97,7 +97,7 @@ int main(){
         Check(travelling.GetPlayers()[1].health == 75, "damage occurs on bullet arrival");
 
         Game dodge;
-        Step(dodge, 121);
+        Step(dodge, 361);
         inputs = {};
         inputs[0].hasAim = true;
         inputs[0].aimPosition = dodge.GetPlayers()[1].position;
@@ -131,7 +131,7 @@ int main(){
         Check(serverCombat.GetPlayers()[1].health == 75, "swept bullet cannot tunnel through a small hitbox");
 
         Game combat;
-        Step(combat, 121);
+        Step(combat, 361);
         inputs = {};
         inputs[0].hasAim = true;
         inputs[0].aimPosition = combat.GetPlayers()[1].position;
