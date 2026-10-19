@@ -21,7 +21,9 @@ int main(int argc, char* argv[]){
         bool tappedFire = false;
         glm::vec2 localStart{0}, remoteStart{0};
         double playingFor = 0;
-        while(std::chrono::steady_clock::now() - start < std::chrono::seconds(12)){
+        //The UDP recovery fixture deliberately waits in the lobby for 5.2s;
+        //leave room for a second client process to start on busy Windows hosts.
+        while(std::chrono::steady_clock::now() - start < std::chrono::seconds(20)){
             auto now = std::chrono::steady_clock::now();
             double dt = std::chrono::duration<double>(now - previous).count();
             previous = now;
@@ -84,6 +86,8 @@ int main(int argc, char* argv[]){
                     remoteMoved = remoteMoved || glm::length(remote->position - remoteStart) > 0.05f;
                 }
                 if(playingFor > 2.0 && sawTwo && localMoved && remoteMoved){
+                    if(client.GetPingMilliseconds() < 0 || client.GetSnapshotAgeMilliseconds() < 0)
+                        throw std::runtime_error("Connected gameplay is missing HUD network measurements");
                     if(std::abs(client.GetGame().GetTime() - playingFor) > .5)
                         throw std::runtime_error("Server clock changed speed with the tick rate");
                     if(players[client.GetOwnSlot()].lastShotId == 0)

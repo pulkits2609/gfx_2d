@@ -80,6 +80,9 @@ void GameClient::Disconnect(){
     gameplaySocket.close(ignored);
     udpReady = false;
     gameplayRefreshPending = false;
+    pendingPingRequest = 0;
+    pingSentAt = lastPongAt = 0;
+    pingMilliseconds = -1;
     ResetGameplay();
     lobby = nullptr;
     voiceTransmit = nullptr;
@@ -321,7 +324,13 @@ void GameClient::HandleMessage(){
         }
     }
     else if(type == "pong"){
-        receivedPong = true;
+        if(pendingPingRequest != 0 && message.contains("requestId")
+            && message["requestId"].is_number_unsigned() && message["requestId"] == pendingPingRequest){
+            receivedPong = true;
+            lastPongAt = Now();
+            pingMilliseconds = std::max(0.0, lastPongAt - pingSentAt) * 1000;
+            pendingPingRequest = 0;
+        }
     }
     else if(type == "players"){
         if(!message.contains("players") || !message["players"].is_array()
@@ -341,13 +350,29 @@ void GameClient::HandleMessage(){
 
 void GameClient::SendPing(){
     if(state != State::Connected) return;
+    //Keep one timed request outstanding. A delayed older reply must not be
+    //measured against the send time of a newer ping.
+    if(pendingPingRequest != 0 && Now() - pingSentAt < 2) return;
     auto message = Protocol::Message("ping");
-    message["requestId"] = ++requestId;
+    pendingPingRequest = ++requestId;
+    pingSentAt = Now();
+    message["requestId"] = pendingPingRequest;
     Send(message);
 }
 
+double GameClient::GetPingMilliseconds() const{
+    if(state != State::Connected || lastPongAt == 0 || Now() - lastPongAt > 5) return -1;
+    return pingMilliseconds;
+}
+
+double GameClient::GetSnapshotAgeMilliseconds() const{
+    //This is update freshness, not one-way network latency.
+    if(!hasSnapshot) return -1;
+    return std::max(0.0, Now() - lastSnapshotAt) * 1000;
+}
+
 void GameClient::StartHeartbeat(){
-    heartbeat.expires_after(std::chrono::seconds(10));
+    heartbeat.expires_after(std::chrono::seconds(1));
     heartbeat.async_wait([this](ErrorCode error){
         if(error || state != State::Connected) return;
         SendPing();

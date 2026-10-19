@@ -26,8 +26,10 @@ int main(int argc, char* argv[]){
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
         if(!client.ProbeComplete()) throw std::runtime_error("Control probe timed out");
+        if(client.GetPingMilliseconds() < 0) throw std::runtime_error("Missing measured ping");
         std::cout << "Session " << client.GetPlayerId() << ": hello, ping and player list passed ("
             << client.GetPeerCount() << " connected players)\n";
+        std::cout << "Ping (TCP RTT): " << client.GetPingMilliseconds() << " ms\n";
     }
     catch(const std::exception& error){ std::cerr << error.what() << '\n'; return 1; }
 }

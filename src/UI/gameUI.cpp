@@ -4,6 +4,7 @@
 #include<imgui_impl_opengl3.h>
 #include<algorithm>
 #include<cmath>
+#include<cstdio>
 #include<stdexcept>
 #include<string>
 
@@ -48,11 +49,55 @@ glm::vec3 GameUI::TeamColor(int team){
     return colors[std::clamp(team, 0, 3)];
 }
 
+void GameUI::DrawPerformance(const GameClient* network, bool floating){
+    const ImGuiIO& io = ImGui::GetIO();
+    float fps = io.Framerate;
+    float frameMilliseconds = fps > 0 ? 1000.0f / fps : 0;
+    char frames[64];
+    std::snprintf(frames, sizeof(frames), "%.0f FPS  |  %.1f ms/frame", fps, frameMilliseconds);
+
+    bool connected = network && network->GetState() == GameClient::State::Connected;
+    double ping = connected ? network->GetPingMilliseconds() : -1;
+    double updateAge = connected ? network->GetSnapshotAgeMilliseconds() : -1;
+    std::string connection = "PING --  |  OFFLINE";
+    if(connected){
+        connection = ping < 0 ? "PING ... (TCP RTT)"
+            : "PING " + std::to_string(static_cast<int>(std::lround(ping))) + " ms (TCP RTT)";
+    }
+    std::string updates = "OFFLINE PRACTICE";
+    if(connected){
+        updates = updateAge < 0 ? "WAITING FOR GAMEPLAY"
+            : "UPDATE " + std::to_string(static_cast<int>(std::lround(updateAge))) + " ms";
+        updates += "  |  " + std::to_string(network->GetTickRate()) + " Hz";
+    }
+    if(!floating){
+        ImGui::TextDisabled("%s", frames);
+        ImGui::TextDisabled("%s", connection.c_str());
+        return;
+    }
+
+    //Use the empty top-left HUD space; never cover the arena or voice buttons.
+    float scale = ViewLayout::Calculate(io.DisplaySize.x, io.DisplaySize.y).scale;
+    ImVec2 corner(18 * scale, 18 * scale);
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    draw->AddRectFilled(corner, ImVec2(corner.x + 224 * scale, corner.y + 82 * scale), IM_COL32(18, 22, 26, 245));
+    ImU32 muted = IM_COL32(148, 157, 160, 255);
+    ImU32 warning = IM_COL32(241, 163, 102, 255);
+    auto line = [&](float y, const char* text, ImU32 color, float size = 13){
+        draw->AddText(regularFont, size * scale, ImVec2(corner.x + 10 * scale, corner.y + y * scale), color, text);
+    };
+    line(7, "PERFORMANCE", muted, 11);
+    line(24, frames, fps < 30 ? warning : IM_COL32(233, 232, 221, 255));
+    line(42, connection.c_str(), ping >= 150 ? warning : muted);
+    line(60, updates.c_str(), updateAge >= 250 ? warning : muted);
+}
+
 MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     const ViewLayout& view, const std::string& connectionStatus, GameClient* network, VoiceChat* voice){
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    DrawPerformance(network, true);
 
     ImDrawList* draw = ImGui::GetBackgroundDrawList();
     ImVec2 screen = ImGui::GetIO().DisplaySize;
@@ -154,17 +199,24 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     }
     text(right + 14 * scale, bottom + 80 * scale, reloadLabel, muted);
 
-    //a small status ribbon leaves the arena clear while alive
+    //Keep the shield countdown beside health; only respawn uses the centre.
     if((!network || !network->MatchFinished()) && (!player.IsAlive() || player.IsSpawnProtected(game.GetTime()))){
-        std::string status = "SPAWN PROTECTION";
+        std::string status = "SHIELD " + std::to_string(static_cast<int>(std::ceil(
+            std::max(0.0, player.protectionEndTime - game.GetTime())))) + "s  /  FIRE ENABLED";
         if(!player.IsAlive()){
             status = "RESPAWN IN " + std::to_string(static_cast<int>(std::ceil(
                 std::max(0.0, player.respawnTime - game.GetTime())))) + "s";
         }
-        ImVec2 size = regularFont->CalcTextSizeA(regularFont->FontSize * scale, 1000, 0, status.c_str());
-        float x = (screen.x - size.x) * 0.5f;
-        rectangle(x - 12 * scale, screen.y * 0.5f - 13 * scale, size.x + 24 * scale, 30 * scale, panel);
-        text(x, screen.y * 0.5f - 6 * scale, status, paper);
+        if(player.IsAlive()){
+            rectangle(margin, bottom - 24 * scale, leftWidth, 20 * scale, panel);
+            text(margin + 14 * scale, bottom - 22 * scale, status, paper);
+        }
+        else{
+            ImVec2 size = regularFont->CalcTextSizeA(regularFont->FontSize * scale, 1000, 0, status.c_str());
+            float x = (screen.x - size.x) * 0.5f;
+            rectangle(x - 12 * scale, screen.y * 0.5f - 13 * scale, size.x + 24 * scale, 30 * scale, panel);
+            text(x, screen.y * 0.5f - 6 * scale, status, paper);
+        }
     }
 
     std::string controls = network ? "WASD MOVE   MOUSE AIM   LMB FIRE   ESC LEAVE" : "WASD MOVE   MOUSE AIM   LMB FIRE   1-4 SWITCH";
@@ -408,6 +460,7 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, GameClient* network, bool bu
         ImGui::TextWrapped("%s", network->GetStatus().c_str());
         if(!network->GetNotice().empty()) ImGui::TextWrapped("%s", network->GetNotice().c_str());
     }
+    DrawPerformance(network, false);
     ImGui::End();
     MenuAction confirmation = DrawLeaveConfirmation(network);
     if(confirmation != MenuAction::None) action = confirmation;

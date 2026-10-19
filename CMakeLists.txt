@@ -196,6 +196,9 @@ if(BUILD_TESTING)
     set(GFX_VOICE_CLIENT_EXECUTABLE "" CACHE FILEPATH "Optional voice_client for device-free integration tests")
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME network_stats COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/network_stats.py $<TARGET_FILE:gfx_control_client>)
+        set_tests_properties(network_stats PROPERTIES TIMEOUT 15)
         add_test(NAME debug_logging COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/debug_logging.py $<TARGET_FILE:gfx_server>
             $<IF:$<CONFIG:Debug>,1,0>)

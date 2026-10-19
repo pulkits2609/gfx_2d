@@ -39,6 +39,14 @@ Escape leaves an online match or returns offline practice to the menu. Keys
 1-4 switch players only in offline practice. Build without graphics using
 `-DGFX_BUILD_CLIENT=OFF`; run checks with `ctest --test-dir build --output-on-failure`.
 
+The performance panel shows FPS, average frame time, TCP round-trip ping,
+the age of the newest gameplay snapshot, and the server tick rate. Ping refreshes
+about once per second; snapshot age measures freshness, not one-way latency.
+Unavailable or stale measurements show a placeholder rather than zero.
+Spawning and respawning give three seconds of protection from damage. Players
+can fire immediately without losing that protection; the health HUD shows the
+remaining shield time.
+
 ## Debug network logs
 
 Set `--tick-rate 180` when starting `gfx_server` to choose its simulation rate

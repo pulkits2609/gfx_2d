@@ -37,6 +37,7 @@ class GameUI{
         bool closingGame = false;
         MenuAction DrawLeaveConfirmation(const GameClient* network);
         void DrawVoice(GameClient* network, VoiceChat* voice, bool floating);
+        void DrawPerformance(const GameClient* network, bool floating);
 
     public:
         explicit GameUI(GLFWwindow* window);

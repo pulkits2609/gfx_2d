@@ -50,6 +50,8 @@ class GameClient{
         bool receivedPong = false;
         std::uint64_t playerId = 0;
         std::uint32_t requestId = 0;
+        std::uint32_t pendingPingRequest = 0;
+        double pingSentAt = 0, lastPongAt = 0, pingMilliseconds = -1;
         std::string name;
         std::string sessionToken;
         std::string rejoinToken, serverHost;
@@ -119,6 +121,9 @@ class GameClient{
         void UpdateGameplay(double deltaTime, const PlayerInput& input);
         bool HasSnapshot() const{ return hasSnapshot; }
         bool UDPReady() const{ return udpReady; }
+        double GetPingMilliseconds() const;
+        double GetSnapshotAgeMilliseconds() const;
+        unsigned GetTickRate() const{ return tickRate; }
         bool MatchFinished() const{ return hasSnapshot && latest.finished; }
         float RemainingTime() const{ return hasSnapshot ? latest.remaining : 0; }
         const Game& GetGame() const{ return renderedGame; }
