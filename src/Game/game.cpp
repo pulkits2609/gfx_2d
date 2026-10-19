@@ -178,9 +178,11 @@ void Game::PredictMovement(Player& player, const PlayerInput& input, double delt
 }
 
 void Game::ResolveCollisions(){
+    constexpr float MinimumSeparation = 0.000001f;
     float diameter = 2.0f * MatchRules::PlayerRadius;
     //equal mass: share overlap equally. Multiple passes let pushes reach a chain of players.
     for(int pass = 0; pass < MatchRules::CollisionPasses; pass++){
+        bool positionsChanged = false;
         for(std::size_t i = 0; i < players.size(); i++){
             if(!players[i].IsAlive()) continue;
             for(std::size_t j = i + 1; j < players.size(); j++){
@@ -188,13 +190,20 @@ void Game::ResolveCollisions(){
                 glm::vec2 difference = players[j].position - players[i].position;
                 float distance = glm::length(difference);
                 if(distance >= diameter) continue;
-                glm::vec2 normal = distance > 0.000001f
-                    ? difference / distance : glm::vec2(1.0f, 0.0f);
+                glm::vec2 normal(1.0f, 0.0f);
+                if(distance > MinimumSeparation) normal = difference / distance;
                 glm::vec2 correction = normal * ((diameter - distance) * 0.5f);
-                players[i].position = arena.ClampPosition(players[i].position - correction, MatchRules::PlayerRadius);
-                players[j].position = arena.ClampPosition(players[j].position + correction, MatchRules::PlayerRadius);
+                glm::vec2 firstPosition = arena.ClampPosition(players[i].position - correction, MatchRules::PlayerRadius);
+                glm::vec2 secondPosition = arena.ClampPosition(players[j].position + correction, MatchRules::PlayerRadius);
+                if(firstPosition != players[i].position || secondPosition != players[j].position){
+                    positionsChanged = true;
+                }
+                players[i].position = firstPosition;
+                players[j].position = secondPosition;
             }
         }
+        //If a whole pass moved nobody, another identical pass cannot fix anything.
+        if(!positionsChanged) break;
     }
 }
 
