@@ -15,7 +15,7 @@ and four allow two each. The host leaving closes the lobby.
 The dedicated server owns movement, pushing, travelling bullets, health,
 reload, boost, respawns, scores and the match timer. TCP handles sessions and
 lobbies; authenticated UDP endpoints carry inputs and snapshots. The server
-runs at 30 Hz and sends snapshots at 20 Hz. Clients predict their own movement
+runs at 30 Hz and sends snapshots at 30 Hz. Clients predict their own movement
 and interpolate other players. Offline practice keeps four switchable players.
 
 Run commands from the executable directory so shader assets can be found:
@@ -46,13 +46,16 @@ Unavailable or stale measurements show a placeholder rather than zero.
 Spawning and respawning give three seconds of protection from damage. Players
 can fire immediately without losing that protection; the health HUD shows the
 remaining shield time.
+Protected players also have a visible ring and a SHIELD label. Bullets use their
+team colour, and a brief red arena border marks a confirmed drop in local health.
+The menu and performance panel show the client version so players can compare builds.
 
 ## Debug network logs
 
 Set `--tick-rate 180` when starting `gfx_server` to choose its simulation rate
 (1-180 Hz; default 30). The server tells clients the selected rate so input
 sending and movement prediction use the same step. Snapshots remain capped at
-20 Hz, with client interpolation between updates. Higher tick rates require
+30 Hz, with client interpolation between updates. Higher tick rates require
 more CPU and input bandwidth; all players should use the updated client.
 
 Debug builds enable `GFX_DEBUG` through CMake, following realtime-voice's

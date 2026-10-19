@@ -35,9 +35,13 @@ class GameUI{
         bool leaveOpen = false;
         bool openLeavePopup = false;
         bool closingGame = false;
+        std::uint64_t previousPlayerId = 0;
+        int previousHealth = MatchRules::StartingHealth;
+        double damageFlashUntil = 0;
         MenuAction DrawLeaveConfirmation(const GameClient* network);
         void DrawVoice(GameClient* network, VoiceChat* voice, bool floating);
         void DrawPerformance(const GameClient* network, bool floating);
+        void DrawDamageFeedback(const Player& player, const ViewLayout& view);
 
     public:
         explicit GameUI(GLFWwindow* window);

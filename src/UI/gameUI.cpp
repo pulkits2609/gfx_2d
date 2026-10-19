@@ -1,4 +1,5 @@
 #include"UI/gameUI.hpp"
+#include"Core/buildInfo.hpp"
 #include<imgui.h>
 #include<imgui_impl_glfw.h>
 #include<imgui_impl_opengl3.h>
@@ -9,6 +10,12 @@
 #include<string>
 
 namespace{
+    constexpr double DamageFlashDuration = 0.18;
+    constexpr int DamageFlashAlpha = 150;
+    constexpr float DamageBorderThickness = 4.0f;
+    constexpr float ShieldRingPadding = 0.012f;
+    constexpr int ShieldRingSegments = 32;
+
     ImU32 Color(const glm::vec3& color, int alpha = 255){
         return IM_COL32(static_cast<int>(color.r * 255), static_cast<int>(color.g * 255),
             static_cast<int>(color.b * 255), alpha);
@@ -52,22 +59,27 @@ glm::vec3 GameUI::TeamColor(int team){
 void GameUI::DrawPerformance(const GameClient* network, bool floating){
     const ImGuiIO& io = ImGui::GetIO();
     float fps = io.Framerate;
-    float frameMilliseconds = fps > 0 ? 1000.0f / fps : 0;
+    float frameMilliseconds = 0;
+    if(fps > 0) frameMilliseconds = 1000.0f / fps;
     char frames[64];
     std::snprintf(frames, sizeof(frames), "%.0f FPS  |  %.1f ms/frame", fps, frameMilliseconds);
 
     bool connected = network && network->GetState() == GameClient::State::Connected;
-    double ping = connected ? network->GetPingMilliseconds() : -1;
-    double updateAge = connected ? network->GetSnapshotAgeMilliseconds() : -1;
+    double ping = -1;
+    double updateAge = -1;
+    if(connected){
+        ping = network->GetPingMilliseconds();
+        updateAge = network->GetSnapshotAgeMilliseconds();
+    }
     std::string connection = "PING --  |  OFFLINE";
     if(connected){
-        connection = ping < 0 ? "PING ... (TCP RTT)"
-            : "PING " + std::to_string(static_cast<int>(std::lround(ping))) + " ms (TCP RTT)";
+        connection = "PING ... (TCP RTT)";
+        if(ping >= 0) connection = "PING " + std::to_string(static_cast<int>(std::lround(ping))) + " ms (TCP RTT)";
     }
     std::string updates = "OFFLINE PRACTICE";
     if(connected){
-        updates = updateAge < 0 ? "WAITING FOR GAMEPLAY"
-            : "UPDATE " + std::to_string(static_cast<int>(std::lround(updateAge))) + " ms";
+        updates = "WAITING FOR GAMEPLAY";
+        if(updateAge >= 0) updates = "UPDATE " + std::to_string(static_cast<int>(std::lround(updateAge))) + " ms";
         updates += "  |  " + std::to_string(network->GetTickRate()) + " Hz";
     }
     if(!floating){
@@ -86,10 +98,33 @@ void GameUI::DrawPerformance(const GameClient* network, bool floating){
     auto line = [&](float y, const char* text, ImU32 color, float size = 13){
         draw->AddText(regularFont, size * scale, ImVec2(corner.x + 10 * scale, corner.y + y * scale), color, text);
     };
-    line(7, "PERFORMANCE", muted, 11);
+    std::string version = "CLIENT " + std::string(BuildInfo::ClientVersion);
+    line(7, version.c_str(), muted, 11);
     line(24, frames, fps < 30 ? warning : IM_COL32(233, 232, 221, 255));
     line(42, connection.c_str(), ping >= 150 ? warning : muted);
     line(60, updates.c_str(), updateAge >= 250 ? warning : muted);
+}
+
+void GameUI::DrawDamageFeedback(const Player& player, const ViewLayout& view){
+    double now = ImGui::GetTime();
+    bool samePlayer = player.id == previousPlayerId;
+    bool healthDecreased = player.health < previousHealth;
+    bool healthRestored = player.health > previousHealth;
+
+    //Switching players and respawning are not damage. Menus reset round history.
+    if(!samePlayer || healthRestored) damageFlashUntil = 0;
+    if(samePlayer && healthDecreased) damageFlashUntil = now + DamageFlashDuration;
+    previousPlayerId = player.id;
+    previousHealth = player.health;
+
+    if(now >= damageFlashUntil) return;
+    float remaining = static_cast<float>((damageFlashUntil - now) / DamageFlashDuration);
+    int alpha = static_cast<int>(DamageFlashAlpha * remaining);
+    ImVec2 topLeft(view.left, view.top);
+    ImVec2 bottomRight(view.left + view.width, view.top + view.height);
+    //Online health comes from snapshots; predicted shots never trigger this flash.
+    ImGui::GetBackgroundDrawList()->AddRect(topLeft, bottomRight, IM_COL32(242, 94, 78, alpha),
+        0, 0, DamageBorderThickness * view.scale);
 }
 
 MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
@@ -106,6 +141,7 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     ImU32 muted = IM_COL32(148, 157, 160, 255);
     ImU32 panel = IM_COL32(18, 22, 26, 245);
     const Player& player = game.GetPlayers()[selectedPlayer];
+    DrawDamageFeedback(player, view);
     glm::vec3 teamColor = TeamColor(player.team);
 
     auto text = [&](float x, float y, const std::string& value, ImU32 color, bool large = false){
@@ -154,9 +190,17 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
         const Player& other = game.GetPlayers()[i];
         if(!other.IsAlive()) continue;
         float x = view.left + (other.position.x / view.halfWidth + 1.0f) * view.width * 0.5f;
+        bool protectedPlayer = other.IsSpawnProtected(game.GetTime());
+        if(protectedPlayer){
+            float centreY = view.top + (1.0f - other.position.y / view.halfHeight) * view.height * 0.5f;
+            float radius = (MatchRules::PlayerRadius + ShieldRingPadding) * view.width / (2 * view.halfWidth);
+            glm::vec3 shieldColor = glm::mix(TeamColor(other.team), glm::vec3(1.0f), 0.6f);
+            draw->AddCircle(ImVec2(x, centreY), radius, Color(shieldColor), ShieldRingSegments, 1.5f * scale);
+        }
         float y = view.top + (1.0f - (other.position.y + MatchRules::PlayerRadius + 0.035f)
             / view.halfHeight) * view.height * 0.5f;
         std::string label = (i == selectedPlayer ? "> " : "") + other.name;
+        if(protectedPlayer) label += " [SHIELD]";
         ImVec2 size = regularFont->CalcTextSizeA(regularFont->FontSize * scale, 1000, 0, label.c_str());
         float left = std::clamp(x - size.x * 0.5f, 4.0f, std::max(4.0f, screen.x - size.x - 4));
         draw->AddText(regularFont, regularFont->FontSize * scale, ImVec2(left + 1, y - size.y - 5 * scale + 1),
@@ -200,10 +244,15 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     text(right + 14 * scale, bottom + 80 * scale, reloadLabel, muted);
 
     //Keep the shield countdown beside health; only respawn uses the centre.
-    if((!network || !network->MatchFinished()) && (!player.IsAlive() || player.IsSpawnProtected(game.GetTime()))){
-        std::string status = "SHIELD " + std::to_string(static_cast<int>(std::ceil(
-            std::max(0.0, player.protectionEndTime - game.GetTime())))) + "s  /  FIRE ENABLED";
-        if(!player.IsAlive()){
+    bool showPlayerStatus = !network || !network->MatchFinished();
+    bool protectedPlayer = player.IsSpawnProtected(game.GetTime());
+    if(showPlayerStatus && (!player.IsAlive() || protectedPlayer)){
+        std::string status;
+        if(player.IsAlive()){
+            double shieldSeconds = std::max(0.0, player.protectionEndTime - game.GetTime());
+            status = "SHIELD " + std::to_string(static_cast<int>(std::ceil(shieldSeconds))) + "s  /  FIRE ENABLED";
+        }
+        else{
             status = "RESPAWN IN " + std::to_string(static_cast<int>(std::ceil(
                 std::max(0.0, player.respawnTime - game.GetTime())))) + "s";
         }
@@ -258,6 +307,9 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
 }
 
 MenuAction GameUI::DrawMenu(MenuSettings& settings, GameClient* network, bool busy, VoiceChat* voice){
+    //A new game may reuse player IDs, so do not carry a previous damage flash into it.
+    previousPlayerId = 0;
+    damageFlashUntil = 0;
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -274,6 +326,7 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, GameClient* network, bool bu
     ImGui::PushFont(numberFont);
     ImGui::TextUnformatted("GFX_2D");
     ImGui::PopFont();
+    ImGui::TextDisabled("CLIENT %s", BuildInfo::ClientVersion);
     ImGui::TextDisabled("One arena. Pick a shape. Find your team.");
     ImGui::Separator();
     MenuAction action = MenuAction::None;

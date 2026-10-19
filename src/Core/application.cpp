@@ -312,11 +312,14 @@ void Application::DrawPlayers(const glm::mat4& projection){
         transforms[i].SetPosition({player.position.x, player.position.y});
         transforms[i].SetRotation(aimAngle - halfPi);
         transforms[i].SetScale({MatchRules::PlayerVisualScale, MatchRules::PlayerVisualScale});
-        glm::vec3 bodyColor = player.IsSpawnProtected(game.GetTime())
-            ? glm::vec3(0.85f, 0.87f, 0.84f) : teamColor;
+        glm::vec3 bodyColor = teamColor;
+        bool protectedPlayer = player.IsSpawnProtected(game.GetTime());
+        if(protectedPlayer) bodyColor = glm::mix(teamColor, glm::vec3(1.0f), 0.25f);
         int shape = player.team;
-        if(!offlinePractice && network && network->GetLobby().is_object())
+        bool hasOnlineShapes = !offlinePractice && network && network->GetLobby().is_object();
+        if(hasOnlineShapes){
             shape = network->GetLobby()["shapes"][player.team].get<int>();
+        }
         renderer.Draw(meshes[static_cast<std::size_t>(shape)], shader, transforms[i], projection, bodyColor);
 
         if(i != selectedPlayer) continue;
@@ -339,16 +342,22 @@ void Application::DrawPlayers(const glm::mat4& projection){
 }
 
 void Application::DrawShots(const glm::mat4& projection){
+    constexpr float OuterStreakWidth = 0.010f;
+    constexpr float InnerStreakWidth = 0.004f;
+    constexpr float OuterBrightness = 0.65f;
+    constexpr float InnerHighlight = 0.35f;
+
     for(const Projectile& bullet : game.GetProjectiles()){
         float age = static_cast<float>(game.GetTime() - bullet.firedAt);
         float length = std::min(MatchRules::TracerLength, age * MatchRules::ProjectileSpeed);
         if(length <= 0) continue;
         glm::vec2 centre = bullet.position - bullet.direction * (length * 0.5f);
         float angle = std::atan2(bullet.direction.y, bullet.direction.x);
-        DrawRectangle(centre, glm::vec2(length, 0.010f),
-            glm::vec3(0.74f, 0.49f, 0.19f), projection, angle);
-        DrawRectangle(centre, glm::vec2(length, 0.004f),
-            glm::vec3(1.0f, 0.91f, 0.66f), projection, angle);
+        //Keep the bright streak, but use its team colour to identify friendly fire.
+        glm::vec3 teamColor = GameUI::TeamColor(bullet.team);
+        glm::vec3 innerColor = glm::mix(teamColor, glm::vec3(1.0f), InnerHighlight);
+        DrawRectangle(centre, glm::vec2(length, OuterStreakWidth), teamColor * OuterBrightness, projection, angle);
+        DrawRectangle(centre, glm::vec2(length, InnerStreakWidth), innerColor, projection, angle);
     }
 }
 
