@@ -37,7 +37,8 @@ namespace MatchRules{
     constexpr unsigned DefaultTickRate = 30;
     constexpr unsigned MaximumTickRate = 180;
     constexpr double ServerStep = 1.0 / DefaultTickRate;
-    constexpr double SnapshotStep = 1.0 / 20.0;
+    constexpr unsigned SnapshotRate = 30;
+    constexpr double SnapshotStep = 1.0 / SnapshotRate;
     constexpr double InputTimeout = 0.25;
     constexpr double TimerTolerance = 1e-9;
 }

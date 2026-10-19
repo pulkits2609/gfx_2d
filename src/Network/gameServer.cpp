@@ -17,6 +17,14 @@ using boost::asio::ip::udp;
 using ErrorCode = boost::system::error_code;
 
 namespace{
+    constexpr std::size_t MaximumQueuedInputs = 8;
+    constexpr unsigned MinimumUdpPacketLimit = 80;
+    constexpr unsigned UdpPacketsPerTick = 2;
+    constexpr unsigned UdpPacketBurstAllowance = 10;
+    constexpr auto UdpWarningInterval = std::chrono::seconds(2);
+    constexpr auto UdpRateWindow = std::chrono::seconds(1);
+    constexpr auto UdpRefreshWindow = std::chrono::seconds(3);
+
     long long AgeMilliseconds(std::chrono::steady_clock::time_point time){
         if(time == std::chrono::steady_clock::time_point{}) return -1;
         return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - time).count();
@@ -186,7 +194,7 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
             else if(type == "refresh_gameplay"){
                 //A router may assign a new UDP port after an idle lobby. Only
                 //the owner of this TCP session may briefly allow re-registration.
-                udpRefreshUntil = now + std::chrono::seconds(3);
+                udpRefreshUntil = now + UdpRefreshWindow;
                 response["type"] = "gameplay_refresh";
                 GFX_DEBUG_LOG("[UDP REFRESH] player=" << id << " authorized over TCP");
             }
@@ -917,22 +925,32 @@ void GameServer::HandleGameplay(std::size_t size){
     auto found = sessions.find(packet.identity.id);
     if(found == sessions.end()) return;
     auto session = found->second;
-    if(!session->welcomed || session->closed || packet.identity.token != session->sessionToken) return;
+    bool validSession = session->welcomed && !session->closed && packet.identity.token == session->sessionToken;
+    if(!validSession) return;
     auto reject = [&](const char* reason){
         if(now < session->nextUdpWarning) return;
-        session->nextUdpWarning = now + std::chrono::seconds(2);
+        session->nextUdpWarning = now + UdpWarningInterval;
         GFX_DEBUG_LOG("[UDP REJECT] player=" << session->id << " sender=" << sender << " expected=" << session->gameplayEndpoint
-            << " reason=" << reason);
+            << " reason=" << reason << " queue_depth=" << session->inputs.size() << " queue_limit=" << MaximumQueuedInputs
+            << " received_seq=" << session->lastReceived << " processed_seq=" << session->lastProcessed);
     };
-    if(now - session->udpRateWindow >= std::chrono::seconds(1)){
+    if(now - session->udpRateWindow >= UdpRateWindow){
         session->udpRateWindow = now;
         session->udpCount = 0;
     }
-    if(++session->udpCount > std::max(80u, tickRate * 2 + 10)){ reject("packet rate limit"); return; }
+    unsigned packetLimit = std::max(MinimumUdpPacketLimit, tickRate * UdpPacketsPerTick + UdpPacketBurstAllowance);
+    if(++session->udpCount > packetLimit){
+        reject("packet rate limit");
+        return;
+    }
     if(packet.type == GameplayPackets::Type::Register){
         ErrorCode error;
         auto tcpPeer = session->socket.remote_endpoint(error);
-        if(error || sender.address() != tcpPeer.address()){ reject("registration address differs from TCP address"); return; }
+        bool sameAddress = !error && sender.address() == tcpPeer.address();
+        if(!sameAddress){
+            reject("registration address differs from TCP address");
+            return;
+        }
         bool changed = session->udpReady && sender != session->gameplayEndpoint;
         if(changed && now >= session->udpRefreshUntil){ reject("registered UDP endpoint changed without TCP approval"); return; }
         if(changed)
@@ -948,16 +966,27 @@ void GameServer::HandleGameplay(std::size_t size){
         return;
     }
     if(packet.type != GameplayPackets::Type::Input) return;
-    if(!session->udpReady || sender != session->gameplayEndpoint){ reject("input from an unregistered UDP endpoint"); return; }
+    bool registeredEndpoint = session->udpReady && sender == session->gameplayEndpoint;
+    if(!registeredEndpoint){
+        reject("input from an unregistered UDP endpoint");
+        return;
+    }
     auto room = lobbies.find(session->lobbyId);
-    if(room == lobbies.end() || !room->second.playing || room->second.finished || packet.match != room->second.match){
-        reject("input for an inactive or different match"); return;
+    bool activeMatch = room != lobbies.end() && room->second.playing && !room->second.finished
+        && packet.match == room->second.match;
+    if(!activeMatch){
+        reject("input for an inactive or different match");
+        return;
     }
     session->lastGameplayPacket = now;
     session->udpPackets++;
     for(const auto& command : packet.commands){
         if(!GameplayPackets::Newer(command.sequence, session->lastReceived)) continue;
-        if(session->inputs.size() >= 8){ reject("input queue full"); break; }
+        bool queueFull = session->inputs.size() >= MaximumQueuedInputs;
+        if(queueFull){
+            reject("input queue full");
+            break;
+        }
         if(session->inputCommands == 0)
             GFX_DEBUG_LOG("[FIRST INPUT] player=" << session->id << " match=" << packet.match << " sequence=" << command.sequence);
         session->inputCommands++;

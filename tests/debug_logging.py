@@ -82,7 +82,10 @@ try:
     #The host sends real inputs; the guest deliberately sends none. This must
     #produce a useful five-second input-timeout reason even with UDP keepalives.
     end = time.monotonic() + 6
-    sequence = 0
+    #A burst fills the bounded queue before the next tick can drain it.
+    for sequence in range(1, 21):
+        body = struct.pack('!IBIIIBBffB', started['match'], 1, sequence, 0, 0, 1, 1, 0, 0, 0)
+        host_udp.send(prefix[:3] + b'\x03' + prefix[4:] + body)
     next_keepalive = 0
     guest_removed = False
     while time.monotonic() < end and not guest_removed:
@@ -132,6 +135,9 @@ if sys.argv[2] == '1':
     assert 'gameplay input timeout (5s)' in timeout and 'inputs=0 ' in timeout, timeout
     assert 'snapshot_errors=0' in timeout and 'last_udp_ms=' in timeout, timeout
     assert 'client sent goodbye' in logs and 'invalid TCP frame length: 0' in logs, logs
+    overflow = next(line for line in stderr if '[UDP REJECT]' in line and 'input queue full' in line)
+    for field in ('queue_depth=8', 'queue_limit=8', 'received_seq=', 'processed_seq='):
+        assert field in overflow, overflow
     assert re.search(r'\[\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z\] \[GFX DEBUG\]', logs), logs
     assert all(token not in logs for token in tokens), 'An authentication/rejoin token was logged'
     print('Debug events, exact disconnect reasons and redaction checks passed')
