@@ -723,6 +723,7 @@ bool GameServer::HandleLobby(std::uint64_t id, const Protocol::Json& message){
             other->inputTime = std::chrono::steady_clock::now();
         }
         lobby.match = nextMatch++;
+        lobby.resultId = MakeSessionToken();
         lobby.tick = 0;
         lobby.snapshotTime = 0;
         lobby.finished = false;
@@ -1106,6 +1107,9 @@ void GameServer::SendResults(const Lobby& lobby){
     GFX_DEBUG_LOG("[MATCH FINISHED] lobby=" << lobby.id << " match=" << lobby.match << " winner=" << lobby.game->GetWinningTeam());
     auto result = Protocol::Message("match_results");
     result["match"] = lobby.match;
+    result["resultId"] = lobby.resultId;
+    result["durationSeconds"] = lobby.minutes * 60;
+    result["teamCount"] = lobby.teams;
     result["winningTeam"] = lobby.game->GetWinningTeam();
     result["scores"] = lobby.game->GetTeamScores();
     result["players"] = Protocol::Json::array();

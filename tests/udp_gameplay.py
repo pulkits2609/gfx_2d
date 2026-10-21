@@ -211,6 +211,11 @@ try:
         assert result['type'] == 'match_results' and result['match'] == ended['match']
         assert result['winningTeam'] == -1 and result['scores'] == [0, 0, 0, 0]
         assert len(result['players']) == 2, 'results include only this match'
+        assert len(result['resultId']) == 64 and all(letter in '0123456789abcdef' for letter in result['resultId'])
+        assert result['durationSeconds'] == 60 and result['teamCount'] == 2
+        guest_result = receive(b.tcp)
+        assert guest_result['resultId'] == result['resultId'], 'all clients must upload the same result ID'
+
         a.input(1, flags=3)
         time.sleep(.12)
         frozen = a.state()

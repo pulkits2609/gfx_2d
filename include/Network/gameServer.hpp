@@ -34,6 +34,7 @@ struct Lobby{
     bool playing = false;
     bool finished = false;
     std::uint32_t match = 0;
+    std::string resultId; //Stable across result broadcasts and ledger retries.
     std::uint32_t tick = 0;
     double snapshotTime = 0;
     std::unique_ptr<Game> game;
