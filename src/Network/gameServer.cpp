@@ -132,11 +132,18 @@ class ControlSession : public std::enable_shared_from_this<ControlSession>{
                 });
         }
 
+        void QueueClose(const std::string& reason){
+            //Send can run inside a lobby update. Remove its state after that update finishes.
+            closing = true;
+            auto self = shared_from_this();
+            boost::asio::post(server.context, [self, reason]{ self->Close(reason); });
+        }
+
         void Send(const Protocol::Json& message, bool closeAfter = false){
             if(closed || closing) return;
-            if(replies.size() >= 16){ Close("TCP reply queue reached 16 messages"); return; }
+            if(replies.size() >= 16){ QueueClose("TCP reply queue reached 16 messages"); return; }
             try{ replies.push_back({Protocol::Encode(message), closeAfter}); }
-            catch(const std::exception&){ Close("could not encode TCP reply"); return; }
+            catch(const std::exception&){ QueueClose("could not encode TCP reply"); return; }
             closing = closeAfter;
             if(replies.size() == 1) WriteNext();
         }
