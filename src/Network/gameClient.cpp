@@ -575,7 +575,8 @@ void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
     previewInput = input;
     double age = Now() - lastSnapshotAt;
     if(age > 5){ Fail("Gameplay snapshots timed out"); return; }
-    if(age > std::max(1.0, tickStep * 2)){ status = "WAITING FOR GAMEPLAY SNAPSHOTS"; return; }
+    //Keep inputs flowing while the return route recovers; the server still owns movement.
+    if(age > std::max(1.0, tickStep * 2)) status = "WAITING FOR GAMEPLAY SNAPSHOTS";
     reloadPending = reloadPending || input.reload;
     if(!latest.finished){
         Player shooter = predicted;

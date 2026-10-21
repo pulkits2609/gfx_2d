@@ -41,6 +41,7 @@ class Mapping:
         self.error = None
         self.last_client = self.first_snapshot = 0
         self.registrations = self.snapshots = self.inputs_after_change = 0
+        self.last_input = self.longest_input_gap = 0
         self.changed = self.dropped_reply = False
         self.change = threading.Event()
         self.changed_event = threading.Event()
@@ -83,6 +84,11 @@ class Mapping:
                         self.last_client = time.monotonic()
                         if data[:4] == b'G2\x02\x01':
                             self.registrations += 1
+                        if data[:4] == b'G2\x02\x03':
+                            now = time.monotonic()
+                            if self.last_input:
+                                self.longest_input_gap = max(self.longest_input_gap, now - self.last_input)
+                            self.last_input = now
                         if self.changed and data[:4] == b'G2\x02\x03':
                             self.inputs_after_change += 1
                         self.back.sendto(data, self.server)
@@ -96,6 +102,9 @@ class Mapping:
                             self.snapshots += 1
                             if not self.first_snapshot:
                                 self.first_snapshot = time.monotonic()
+                        if self.mode == 'snapshot_gap' and self.first_snapshot:
+                            if .3 < time.monotonic() - self.first_snapshot < 3.3:
+                                continue
                         self.front.sendto(data, self.endpoint)
         except (OSError, ValueError) as error:
             if not self.closed:
@@ -182,8 +191,8 @@ class Proxy:
 
 
 def run(mode):
-    rate = ['--tick-rate', '60'] if mode == 'ack_stall' else []
-    duration = '9' if mode == 'ack_stall' else '2'
+    rate = ['--tick-rate', '60'] if mode in ('ack_stall', 'snapshot_gap') else []
+    duration = '9' if mode == 'ack_stall' else '6' if mode == 'snapshot_gap' else '2'
     server = subprocess.Popen([sys.argv[1], '--port', '0', '--udp-port', '0', '--no-voice', *rate],
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     actors, readers = [], []
@@ -226,7 +235,9 @@ def run(mode):
             assert mapping.error is None, mapping.error
             assert mapping.registrations >= 3, 'No periodic lobby UDP keepalive'
             assert mapping.snapshots > 10, 'Snapshots did not reach the real client'
-            if mode != 'idle':
+            if mode == 'snapshot_gap':
+                assert mapping.longest_input_gap < .75, 'Snapshot loss stopped outgoing inputs'
+            if mode in ('match_start', 'during_match', 'ack_stall'):
                 assert mapping.changed and mapping.dropped_reply
                 assert mapping.inputs_after_change > 10, 'Inputs did not resume on the new UDP port'
         print(f'{mode}: both clients received snapshots and synchronized movement')
@@ -246,6 +257,6 @@ def run(mode):
             process.stderr.close()
 
 
-modes = sys.argv[3:] or ('idle', 'match_start', 'during_match', 'ack_stall')
+modes = sys.argv[3:] or ('idle', 'match_start', 'during_match', 'ack_stall', 'snapshot_gap')
 for mode in modes:
     run(mode)
