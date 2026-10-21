@@ -60,8 +60,9 @@ class Mapping:
     def run(self):
         try:
             while not self.closed:
-                if self.change.is_set() or (self.mode == 'during_match' and self.first_snapshot
-                        and time.monotonic() - self.first_snapshot > .3 and not self.changed):
+                change_after = 3.5 if self.mode == 'ack_stall' else .3
+                if self.change.is_set() or (self.mode in ('during_match', 'ack_stall') and self.first_snapshot
+                        and time.monotonic() - self.first_snapshot > change_after and not self.changed):
                     #Keep the old socket bound, but blackhole its packets. Merely
                     #changing the port must not let clients silently take it over.
                     self.old_ports.append(self.back)
@@ -69,7 +70,9 @@ class Mapping:
                     self.changed = True
                     self.change.clear()
                     self.changed_event.set()
-                readable, _, _ = select.select([self.front, self.back], [], [], .02)
+                #An old return route can still deliver snapshots while the outgoing port changes.
+                return_routes = self.old_ports if self.mode == 'ack_stall' else []
+                readable, _, _ = select.select([self.front, self.back, *return_routes], [], [], .02)
                 for sock in readable:
                     try:
                         data, address = sock.recvfrom(2000)
@@ -179,7 +182,9 @@ class Proxy:
 
 
 def run(mode):
-    server = subprocess.Popen([sys.argv[1], '--port', '0', '--udp-port', '0', '--no-voice'],
+    rate = ['--tick-rate', '60'] if mode == 'ack_stall' else []
+    duration = '9' if mode == 'ack_stall' else '2'
+    server = subprocess.Popen([sys.argv[1], '--port', '0', '--udp-port', '0', '--no-voice', *rate],
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     actors, readers = [], []
     diagnostics = deque(maxlen=200)
@@ -196,7 +201,7 @@ def run(mode):
         drain(server.stdout)
         proxy = Proxy(port, mode)
         proxy_port = str(proxy.listener.getsockname()[1])
-        host = subprocess.Popen([sys.argv[2], proxy_port, 'host'], stdout=subprocess.PIPE,
+        host = subprocess.Popen([sys.argv[2], proxy_port, 'host', '', duration], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
         actors.append(host)
         drain(host.stderr)
@@ -205,13 +210,13 @@ def run(mode):
         reader.start()
         readers.append(reader)
         code = re.match(r'CODE (\w+)', lines.get(timeout=5)).group(1)
-        guest = subprocess.Popen([sys.argv[2], proxy_port, 'join', code], stdout=subprocess.PIPE,
+        guest = subprocess.Popen([sys.argv[2], proxy_port, 'join', code, duration], stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, text=True)
         actors.append(guest)
         drain(guest.stderr)
-        guest.wait(timeout=14)
+        guest.wait(timeout=22)
         guest_output = guest.stdout.read()
-        host.wait(timeout=14)
+        host.wait(timeout=22)
         reader.join(timeout=2)
         host_output = ''.join(lines.queue)
         assert host.returncode == guest.returncode == 0, ''.join(diagnostics)
@@ -241,5 +246,6 @@ def run(mode):
             process.stderr.close()
 
 
-for mode in ('idle', 'match_start', 'during_match'):
+modes = sys.argv[3:] or ('idle', 'match_start', 'during_match', 'ack_stall')
+for mode in modes:
     run(mode)

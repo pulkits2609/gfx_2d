@@ -58,7 +58,11 @@ void GameClient::Poll(){
     if(state == State::Connected && lobby.is_object() && lobby["playing"].get<bool>()){
         //Do not wait for a snapshot to repair the UDP route: that would leave
         //both sides waiting when a router drops its idle lobby mapping.
-        if((!hasSnapshot && waitingSince > 0) || (hasSnapshot && !latest.finished && Now() - lastSnapshotAt > std::max(0.75, tickStep * 2)))
+        bool waitingForSnapshot = !hasSnapshot && waitingSince > 0;
+        bool snapshotsStalled = hasSnapshot && Now() - lastSnapshotAt > std::max(0.75, tickStep * 2);
+        //A working return route does not prove that our inputs reach the server.
+        bool inputsStalled = !pendingInputs.empty() && Now() - lastAcknowledgementAt > std::max(0.75, tickStep * 2);
+        if(waitingForSnapshot || (hasSnapshot && !latest.finished && (snapshotsStalled || inputsStalled)))
             RefreshGameplay();
         if(waitingSince > 0 && !hasSnapshot && Now() - waitingSince > 5)
             Fail("The match started but no gameplay snapshot arrived; check the server UDP port");
@@ -515,7 +519,7 @@ void GameClient::ResetGameplay(){
     pendingInputs.clear();
     sequence = reloadCounter = lastSentShot = 0;
     inputAccumulator = predictionTime = 0;
-    waitingSince = 0;
+    waitingSince = lastAcknowledgementAt = 0;
     reloadPending = false;
     correction = {0, 0};
     previewInput = {};
@@ -542,6 +546,8 @@ void GameClient::AcceptSnapshot(GameplayPackets::Snapshot snapshot){
     bool sameLife = hasSnapshot && predicted.IsAlive() == snapshot.state.players[slot].IsAlive()
         && predicted.deaths == snapshot.state.players[slot].deaths
         && glm::length(predicted.position - snapshot.state.players[slot].position) < 0.5f;
+    if(!hasSnapshot || GameplayPackets::Newer(snapshot.acknowledged, latest.acknowledged))
+        lastAcknowledgementAt = Now();
     while(!pendingInputs.empty() && !GameplayPackets::Newer(pendingInputs.front().sequence, snapshot.acknowledged))
         pendingInputs.pop_front();
     predicted = snapshot.state.players[slot];
@@ -592,6 +598,7 @@ void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
             lastSentShot = command.shot;
         }
         command.input.reload = false;
+        if(pendingInputs.empty()) lastAcknowledgementAt = Now();
         pendingInputs.push_back(command);
         //Repeat the last four commands. Sequence numbers make duplicates harmless,
         //and the reload counter survives a lost R packet without reloading twice.

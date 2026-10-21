@@ -10,6 +10,7 @@ int main(int argc, char* argv[]){
     try{
         if(argc < 3) throw std::runtime_error("Expected port and host/join role");
         bool host = std::string(argv[2]) == "host";
+        double requiredSeconds = argc > 4 ? std::stod(argv[4]) : 2.0;
         GameClient client;
         client.Connect("127.0.0.1", static_cast<unsigned short>(std::stoi(argv[1])), host ? "Host" : "Guest");
         auto start = std::chrono::steady_clock::now();
@@ -85,7 +86,7 @@ int main(int argc, char* argv[]){
                     localMoved = localMoved || glm::length(local->position - localStart) > 0.05f;
                     remoteMoved = remoteMoved || glm::length(remote->position - remoteStart) > 0.05f;
                 }
-                if(playingFor > 2.0 && sawTwo && localMoved && remoteMoved){
+                if(playingFor > requiredSeconds && sawTwo && localMoved && remoteMoved){
                     if(client.GetPingMilliseconds() < 0 || client.GetSnapshotAgeMilliseconds() < 0)
                         throw std::runtime_error("Connected gameplay is missing HUD network measurements");
                     if(std::abs(client.GetGame().GetTime() - playingFor) > .5)

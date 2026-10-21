@@ -35,6 +35,7 @@ class GameClient{
         std::uint32_t sequence = 0, reloadCounter = 0, lastSentShot = 0;
         bool reloadPending = false;
         double inputAccumulator = 0, predictionTime = 0, lastSnapshotAt = 0, waitingSince = 0;
+        double lastAcknowledgementAt = 0;
         Player predicted;
         ShotPreview shotPreview;
         PlayerInput previewInput;
