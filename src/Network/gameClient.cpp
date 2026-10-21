@@ -103,7 +103,9 @@ void GameClient::Disconnect(){
 void GameClient::Fail(const std::string& reason){
     if(state == State::Offline || state == State::Failed) return;
     GFX_DEBUG_LOG("[CLIENT DISCONNECT] player=" << playerId << " server=" << serverHost << ':' << serverPort
-        << " reason=" << std::quoted(reason) << " udp_ready=" << udpReady << " has_snapshot=" << hasSnapshot);
+        << " reason=" << std::quoted(reason) << " udp_ready=" << udpReady << " has_snapshot=" << hasSnapshot
+        << " sent_seq=" << sequence << " acknowledged_seq=" << latest.acknowledged
+        << " pending_inputs=" << pendingInputs.size() << " snapshot_age_ms=" << GetSnapshotAgeMilliseconds());
     Disconnect();
     state = State::Failed;
     status = "OFFLINE: " + reason.substr(0, 80);
@@ -472,6 +474,15 @@ void GameClient::SendDatagram(const std::vector<std::uint8_t>& bytes){
     if(!gameplaySocket.is_open()) return;
     ErrorCode error;
     gameplaySocket.send(boost::asio::buffer(bytes), 0, error);
+    if(error) LogGameplayError("send", error);
+}
+
+void GameClient::LogGameplayError(const char* operation, const ErrorCode& error){
+    //A broken route can fail every packet. Keep the useful error without flooding the console.
+    if(error == boost::asio::error::operation_aborted || Now() < nextGameplayWarning) return;
+    nextGameplayWarning = Now() + 2;
+    GFX_DEBUG_LOG("[CLIENT UDP ERROR] player=" << playerId << " operation=" << operation
+        << " code=" << error.value() << " reason=" << error.message());
 }
 
 void GameClient::RegisterGameplay(){
@@ -497,6 +508,7 @@ void GameClient::ReceiveGameplay(){
     //The connected UDP socket accepts datagrams only from our chosen server endpoint.
     gameplaySocket.async_receive(boost::asio::buffer(datagram), [this](ErrorCode error, std::size_t size){
         if(state != State::Connected) return;
+        if(error) LogGameplayError("receive", error);
         GameplayPackets::Packet packet;
         if(!error && GameplayPackets::Decode(datagram.data(), size, packet)
             && packet.identity.id == playerId && packet.identity.token == sessionToken){

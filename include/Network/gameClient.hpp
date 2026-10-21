@@ -28,6 +28,7 @@ class GameClient{
         bool gameplayRefreshPending = false;
         unsigned registrationAttempts = 0;
         double nextGameplayRefresh = 0;
+        double nextGameplayWarning = 0;
         bool hasSnapshot = false;
         GameplayPackets::Snapshot latest;
         std::deque<GameplayPackets::Snapshot> snapshots;
@@ -84,6 +85,7 @@ class GameClient{
         void AcceptSnapshot(GameplayPackets::Snapshot snapshot);
         void ResetGameplay();
         void SendDatagram(const std::vector<std::uint8_t>& bytes);
+        void LogGameplayError(const char* operation, const boost::system::error_code& error);
         void RenderGameplay(double deltaTime, const PlayerInput& input);
         void RememberRejoin(const std::string& token, const std::string& code, double remaining);
 

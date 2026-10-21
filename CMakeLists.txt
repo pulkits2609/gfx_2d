@@ -227,6 +227,10 @@ if(BUILD_TESTING)
         add_test(NAME network_stats COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/network_stats.py $<TARGET_FILE:gfx_control_client>)
         set_tests_properties(network_stats PROPERTIES TIMEOUT 15)
+        add_test(NAME client_udp_errors COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/client_udp_errors.py $<TARGET_FILE:gfx_control_client>
+            $<IF:$<CONFIG:Debug>,1,0>)
+        set_tests_properties(client_udp_errors PROPERTIES TIMEOUT 15)
         add_test(NAME debug_logging COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/debug_logging.py $<TARGET_FILE:gfx_server>
             $<IF:$<CONFIG:Debug>,1,0>)
