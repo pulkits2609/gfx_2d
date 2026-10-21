@@ -992,8 +992,9 @@ void GameServer::HandleGameplay(std::size_t size){
         if(!GameplayPackets::Newer(command.sequence, session->lastReceived)) continue;
         bool queueFull = session->inputs.size() >= MaximumQueuedInputs;
         if(queueFull){
-            reject("input queue full");
-            break;
+            //Keep the latest intent after a burst instead of dropping a fresh key release.
+            reject("input queue full; replacing oldest command");
+            session->inputs.pop_front();
         }
         if(session->inputCommands == 0)
             GFX_DEBUG_LOG("[FIRST INPUT] player=" << session->id << " match=" << packet.match << " sequence=" << command.sequence);
@@ -1046,8 +1047,9 @@ void GameServer::Tick(){
                     session->inputs.clear();
                 }
                 else if(!session->inputs.empty()){
-                    auto command = session->inputs.front();
-                    session->inputs.pop_front();
+                    //Old movement already had its time while packets were delayed.
+                    auto command = session->inputs.back();
+                    session->inputs.clear();
                     session->lastInput = command.input;
                     session->lastInput.shotId = command.shot;
                     session->lastInput.shoot = command.input.shoot && command.shot != 0;

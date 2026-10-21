@@ -145,6 +145,16 @@ try:
     while select.select([impostor], [], [], .10)[0]:
         assert impostor.recv(1200)[:4] != b'G2\x02\x02', 'TCP refresh authorization was reused'
 
+    #A stalled frame can send a burst ending in a key release. Do not replay old movement.
+    before_burst = a.state()
+    for _ in range(12):
+        a.input(1)
+    a.input()
+    time.sleep(.10)
+    released = a.state()
+    assert released['ack'] == a.seq, 'fresh release remained behind stale inputs'
+    assert abs(released['players'][a.id]['x'] - before_burst['players'][a.id]['x']) < .025
+
     #One command moves for a short time, then missing input must stop it.
     a.input(1)
     time.sleep(.42)
