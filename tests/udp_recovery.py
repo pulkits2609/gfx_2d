@@ -102,6 +102,8 @@ class Mapping:
                             self.snapshots += 1
                             if not self.first_snapshot:
                                 self.first_snapshot = time.monotonic()
+                        if self.mode == 'results' and data[:4] == b'G2\x02\x04' and data[64]:
+                            continue  #TCP results must work even if every final snapshot is lost.
                         if self.mode == 'snapshot_gap' and self.first_snapshot:
                             if .3 < time.monotonic() - self.first_snapshot < 3.3:
                                 continue
@@ -193,6 +195,7 @@ class Proxy:
 def run(mode):
     rate = ['--tick-rate', '60'] if mode in ('ack_stall', 'snapshot_gap') else []
     duration = '9' if mode == 'ack_stall' else '6' if mode == 'snapshot_gap' else '2'
+    scenario = ['results'] if mode == 'results' else []
     server = subprocess.Popen([sys.argv[1], '--port', '0', '--udp-port', '0', '--no-voice', *rate],
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     actors, readers = [], []
@@ -210,7 +213,7 @@ def run(mode):
         drain(server.stdout)
         proxy = Proxy(port, mode)
         proxy_port = str(proxy.listener.getsockname()[1])
-        host = subprocess.Popen([sys.argv[2], proxy_port, 'host', '', duration], stdout=subprocess.PIPE,
+        host = subprocess.Popen([sys.argv[2], proxy_port, 'host', '', duration, *scenario], stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
         actors.append(host)
         drain(host.stderr)
@@ -219,13 +222,13 @@ def run(mode):
         reader.start()
         readers.append(reader)
         code = re.match(r'CODE (\w+)', lines.get(timeout=5)).group(1)
-        guest = subprocess.Popen([sys.argv[2], proxy_port, 'join', code, duration], stdout=subprocess.PIPE,
+        guest = subprocess.Popen([sys.argv[2], proxy_port, 'join', code, duration, *scenario], stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, text=True)
         actors.append(guest)
         drain(guest.stderr)
-        guest.wait(timeout=22)
+        guest.wait(timeout=85 if mode == "results" else 22)
         guest_output = guest.stdout.read()
-        host.wait(timeout=22)
+        host.wait(timeout=85 if mode == "results" else 22)
         reader.join(timeout=2)
         host_output = ''.join(lines.queue)
         assert host.returncode == guest.returncode == 0, ''.join(diagnostics)

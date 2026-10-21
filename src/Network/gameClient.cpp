@@ -221,6 +221,10 @@ void GameClient::HandleMessage(){
             }
         }
         results = std::move(message);
+        //TCP carries the final result even when the last UDP snapshot is lost.
+        latest.finished = true;
+        latest.remaining = 0;
+        latest.state.scores = results["scores"].get<std::array<int, 4>>();
     }
     else if(type == "voice_error"){
         voiceNotice = message.value("message", "Voice request failed");
@@ -527,6 +531,7 @@ void GameClient::ResetGameplay(){
 }
 
 void GameClient::AcceptSnapshot(GameplayPackets::Snapshot snapshot){
+    if(results.is_object()) return; //An older UDP update must not reopen a finished match.
     if(!lobby.is_object() || !lobby["playing"].get<bool>()
         || snapshot.match != lobby["match"].get<std::uint32_t>()
         || (hasSnapshot && !GameplayPackets::Newer(snapshot.tick, latest.tick))) return;
@@ -572,6 +577,11 @@ void GameClient::AcceptSnapshot(GameplayPackets::Snapshot snapshot){
 
 void GameClient::UpdateGameplay(double deltaTime, const PlayerInput& input){
     if(state != State::Connected || !hasSnapshot) return;
+    if(latest.finished){
+        inputAccumulator = 0;
+        RenderGameplay(deltaTime, input);
+        return; //Results need the control connection, not a continuing UDP stream.
+    }
     previewInput = input;
     double age = Now() - lastSnapshotAt;
     if(age > 5){ Fail("Gameplay snapshots timed out"); return; }

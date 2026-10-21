@@ -265,6 +265,10 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/udp_recovery.py
             $<TARGET_FILE:gfx_server> $<TARGET_FILE:gameplay_test_client>)
         set_tests_properties(udp_recovery PROPERTIES TIMEOUT 80)
+        add_test(NAME results_recovery COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/udp_recovery.py
+            $<TARGET_FILE:gfx_server> $<TARGET_FILE:gameplay_test_client> results)
+        set_tests_properties(results_recovery PROPERTIES TIMEOUT 100)
         add_test(NAME udp_gameplay COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/udp_gameplay.py $<TARGET_FILE:gfx_server>)
         set_tests_properties(udp_gameplay PROPERTIES TIMEOUT 30)

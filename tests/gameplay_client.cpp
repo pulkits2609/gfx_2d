@@ -11,6 +11,7 @@ int main(int argc, char* argv[]){
         if(argc < 3) throw std::runtime_error("Expected port and host/join role");
         bool host = std::string(argv[2]) == "host";
         double requiredSeconds = argc > 4 ? std::stod(argv[4]) : 2.0;
+        bool checkResults = argc > 5 && std::string(argv[5]) == "results";
         GameClient client;
         client.Connect("127.0.0.1", static_cast<unsigned short>(std::stoi(argv[1])), host ? "Host" : "Guest");
         auto start = std::chrono::steady_clock::now();
@@ -22,9 +23,10 @@ int main(int argc, char* argv[]){
         bool tappedFire = false;
         glm::vec2 localStart{0}, remoteStart{0};
         double playingFor = 0;
+        double finishedFor = 0;
         //The UDP recovery fixture deliberately waits in the lobby for 5.2s;
         //leave room for a second client process to start on busy Windows hosts.
-        while(std::chrono::steady_clock::now() - start < std::chrono::seconds(20)){
+        while(std::chrono::steady_clock::now() - start < std::chrono::seconds(checkResults ? 90 : 20)){
             auto now = std::chrono::steady_clock::now();
             double dt = std::chrono::duration<double>(now - previous).count();
             previous = now;
@@ -52,6 +54,22 @@ int main(int argc, char* argv[]){
             }
             if(client.HasSnapshot()){
                 playingFor += dt;
+                if(checkResults){
+                    if(client.GetResults().is_object()){
+                        if(!client.MatchFinished()) throw std::runtime_error("TCP results did not finish the match");
+                        finishedFor += dt;
+                    }
+                    client.UpdateGameplay(dt, {});
+                    if(finishedFor > 6){
+                        if(client.GetState() != GameClient::State::Connected)
+                            throw std::runtime_error("Results screen disconnected without UDP");
+                        std::cout << "PASS results stayed connected without final UDP snapshots" << std::endl;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+                        return 0;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                    continue;
+                }
                 PlayerInput input;
                 input.movement = {0, playingFor < 0.6 ? (host ? -1.0f : 1.0f) : 0.0f};
                 input.boost = true;
