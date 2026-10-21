@@ -272,9 +272,17 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     ImVec2 controlsSize = regularFont->CalcTextSizeA(13 * scale, 2000, 0, controls.c_str());
     draw->AddText(regularFont, 13 * scale, ImVec2((screen.x - controlsSize.x) * 0.5f, screen.y - 15 * scale), muted, controls.c_str());
     MenuAction action = MenuAction::None;
+#ifdef GFX_ENABLE_LEDGER_UPLOAD
+    ledgerUpload.Poll();
+    if(!network || !network->MatchFinished()){
+        ledgerUpload.Reset();
+        ledgerResultId.clear();
+    }
+#endif
     if(network && network->MatchFinished()){
         ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(390, 0));
+        //A fixed height keeps the result buttons reachable on the smallest window.
+        ImGui::SetNextWindowSize(ImVec2(420, std::min(520.0f, screen.y - 100)));
         ImGui::Begin("Match results", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
         const auto& results = network->GetResults();
         if(results.is_object()){
@@ -293,6 +301,9 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
         else ImGui::TextUnformatted("Confirming the final result...");
         if(network->GetLobby()["hostId"] == network->GetPlayerId()){
             if(ImGui::Button("Return to lobby")) action = MenuAction::Return;
+#ifdef GFX_ENABLE_LEDGER_UPLOAD
+            if(results.is_object()) DrawLedgerUpload(results);
+#endif
         }
         else ImGui::TextDisabled("Waiting for the host to return to the lobby.");
         if(ImGui::Button("Leave lobby")) action = MenuAction::AskLeave;
@@ -310,6 +321,10 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, GameClient* network, bool bu
     //A new game may reuse player IDs, so do not carry a previous damage flash into it.
     previousPlayerId = 0;
     damageFlashUntil = 0;
+#ifdef GFX_ENABLE_LEDGER_UPLOAD
+    ledgerUpload.Reset();
+    ledgerResultId.clear();
+#endif
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -606,3 +621,28 @@ MenuAction GameUI::DrawLeaveConfirmation(const GameClient* network){
     }
     return action;
 }
+
+#ifdef GFX_ENABLE_LEDGER_UPLOAD
+void GameUI::DrawLedgerUpload(const Protocol::Json& results){
+    std::string resultId;
+    if(results.contains("resultId") && results["resultId"].is_string())
+        resultId = results["resultId"].get<std::string>();
+    if(resultId != ledgerResultId){
+        ledgerUpload.Reset();
+        ledgerResultId = resultId;
+    }
+    if(!ImGui::CollapsingHeader("Upload results to ledger (optional)")) return;
+    ImGui::TextWrapped("Enter the separate ledger server's address and port. Returning to the lobby cancels a pending request.");
+    bool pending = ledgerUpload.GetState() == LedgerUpload::State::Pending;
+    ImGui::BeginDisabled(pending);
+    ImGui::InputText("Address", ledgerAddress, sizeof(ledgerAddress));
+    ImGui::InputInt("Port", &ledgerPort);
+    if(ImGui::Button("Upload results")) ledgerUpload.Start(ledgerAddress, ledgerPort, results);
+    ImGui::EndDisabled();
+    ImGui::TextWrapped("%s", ledgerUpload.GetStatusText().c_str());
+    if(!ledgerUpload.GetHash().empty()){
+        ImGui::TextWrapped("Record hash: %s", ledgerUpload.GetHash().c_str());
+        if(ImGui::SmallButton("Copy record hash")) ImGui::SetClipboardText(ledgerUpload.GetHash().c_str());
+    }
+}
+#endif

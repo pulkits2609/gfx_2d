@@ -4,6 +4,9 @@
 #include"UI/viewLayout.hpp"
 #include"Network/gameClient.hpp"
 #include"Network/voiceChat.hpp"
+#ifdef GFX_ENABLE_LEDGER_UPLOAD
+#include"Network/ledgerUpload.hpp"
+#endif
 
 enum class MenuAction{ None, Offline, Create, Join, ChooseTeam, Start, Leave, Return, Disconnect, AskLeave, CancelLeave, Rejoin, Browse, JoinPublic, Ready, ChooseShape };
 
@@ -38,6 +41,13 @@ class GameUI{
         std::uint64_t previousPlayerId = 0;
         int previousHealth = MatchRules::StartingHealth;
         double damageFlashUntil = 0;
+#ifdef GFX_ENABLE_LEDGER_UPLOAD
+        LedgerUpload ledgerUpload;
+        char ledgerAddress[128] = "127.0.0.1";
+        int ledgerPort = 8000;
+        std::string ledgerResultId;
+        void DrawLedgerUpload(const Protocol::Json& results);
+#endif
         MenuAction DrawLeaveConfirmation(const GameClient* network);
         void DrawVoice(GameClient* network, VoiceChat* voice, bool floating);
         void DrawPerformance(const GameClient* network, bool floating);

@@ -303,3 +303,21 @@ Each release contains the executable together with the required runtime assets.
 ## Goal
 
 The project will gradually evolve from a basic OpenGL learning project into a small 2D game/engine foundation, with systems for rendering, input, transformations, cameras, assets, and eventually game-specific functionality.
+
+## Optional result ledger
+
+After a timed online match, the host can expand **Upload results to ledger** on the
+results screen, enter the separate ledger's host name/IP address and port (default
+`127.0.0.1:8000`), and submit the final server result. Start blockchainLedger first.
+The request is HTTP `POST /api/blocks`; its body is `{ "match_id": "server-issued resultId", "data": { ...final result... } }`.
+Retries use the same result ID, so the ledger returns the existing block instead of
+recording the match twice. Uploads do not pause gameplay and fail after eight seconds.
+Returning to the lobby cancels a pending upload; a server may already have saved it.
+The displayed hash is the ledger server's receipt, not independent proof of validity.
+
+This trusted-demo API has no authentication. The host submits the received server
+result, but a modified client could submit different data. No client-supplied record
+should be treated as cryptographic proof that a match occurred.
+
+To remove the uploader and its UI from the build, configure with
+`-DGFX_ENABLE_LEDGER_UPLOAD=OFF`. The game server never links the HTTP helper.

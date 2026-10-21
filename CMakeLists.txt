@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(GFX_BUILD_CLIENT "Build the graphical game client" ON)
+option(GFX_ENABLE_LEDGER_UPLOAD "Build optional match-result upload support" ON)
 set(GFX_VOICE_RUNTIME_DIR "" CACHE PATH "Extracted realtime-voice release to bundle beside gfx")
 
 include(FetchContent)
@@ -65,6 +66,18 @@ add_executable(gfx_server server/main.cpp)
 target_link_libraries(gfx_server PRIVATE gfx_network)
 add_executable(gfx_control_client tools/control_client.cpp)
 target_link_libraries(gfx_control_client PRIVATE gfx_network)
+
+#Only the graphical client links this removable HTTP adapter.
+if(GFX_BUILD_CLIENT AND GFX_ENABLE_LEDGER_UPLOAD)
+    add_library(gfx_ledger_upload STATIC src/Network/ledgerUpload.cpp)
+    target_include_directories(gfx_ledger_upload SYSTEM PUBLIC ${boost_headers_SOURCE_DIR})
+    target_link_libraries(gfx_ledger_upload PUBLIC gfx_protocol Threads::Threads)
+    target_compile_definitions(gfx_ledger_upload PUBLIC BOOST_ERROR_CODE_HEADER_ONLY BOOST_SYSTEM_NO_LIB)
+    if(WIN32)
+        target_compile_definitions(gfx_ledger_upload PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0601)
+        target_link_libraries(gfx_ledger_upload PUBLIC ws2_32 mswsock)
+    endif()
+endif()
 
 if(GFX_BUILD_CLIENT)
 find_package(OpenGL REQUIRED)
@@ -136,6 +149,11 @@ target_link_libraries(gfx
         gfx_network
 )
 
+if(GFX_ENABLE_LEDGER_UPLOAD)
+    target_link_libraries(gfx PRIVATE gfx_ledger_upload)
+    target_compile_definitions(gfx PRIVATE GFX_ENABLE_LEDGER_UPLOAD)
+endif()
+
 #Voice remains a separate application, with its own codec/audio dependencies.
 #No voice headers or audio libraries are linked into gfx or gfx_server.
 if(GFX_VOICE_RUNTIME_DIR)
@@ -199,6 +217,13 @@ if(BUILD_TESTING)
     set(GFX_VOICE_CLIENT_EXECUTABLE "" CACHE FILEPATH "Optional voice_client for device-free integration tests")
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        if(TARGET gfx_ledger_upload)
+            add_executable(ledger_upload_test_client tests/ledger_upload_client.cpp)
+            target_link_libraries(ledger_upload_test_client PRIVATE gfx_ledger_upload)
+            add_test(NAME ledger_upload COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/ledger_upload.py $<TARGET_FILE:ledger_upload_test_client>)
+            set_tests_properties(ledger_upload PROPERTIES TIMEOUT 35)
+        endif()
         add_test(NAME network_stats COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/network_stats.py $<TARGET_FILE:gfx_control_client>)
         set_tests_properties(network_stats PROPERTIES TIMEOUT 15)
