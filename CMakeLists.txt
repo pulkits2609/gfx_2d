@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(GFX_BUILD_CLIENT "Build the graphical game client" ON)
 option(GFX_ENABLE_LEDGER_UPLOAD "Build optional match-result upload support" ON)
+option(GFX_TEST_UI_LAYOUT "Enable UI render checks that require a display" OFF)
 set(GFX_VOICE_RUNTIME_DIR "" CACHE PATH "Extracted realtime-voice release to bundle beside gfx")
 
 include(FetchContent)
@@ -121,6 +122,7 @@ add_executable(gfx
 
     src/Core/window.cpp
     src/Core/application.cpp
+    src/Core/clientSettings.cpp
 
     src/Graphics/vertexBuffer.cpp
     src/Graphics/vertexArray.cpp
@@ -129,6 +131,7 @@ add_executable(gfx
     src/Graphics/mesh.cpp
     src/Graphics/transform.cpp
     src/Input/keyboardInput.cpp
+    src/Input/controllerInput.cpp
 
     src/UI/gameUI.cpp
 )
@@ -185,6 +188,26 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(client_settings_tests tests/client_settings.cpp src/Core/clientSettings.cpp)
+    target_link_libraries(client_settings_tests PRIVATE gfx_protocol)
+    add_test(NAME client_settings COMMAND client_settings_tests)
+    if(GFX_BUILD_CLIENT)
+        add_executable(controller_input_tests tests/controller_input.cpp src/Input/controllerInput.cpp)
+        target_include_directories(controller_input_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        target_link_libraries(controller_input_tests PRIVATE glfw glm::glm)
+        add_test(NAME controller_input COMMAND controller_input_tests)
+        if(GFX_TEST_UI_LAYOUT)
+            add_executable(ui_layout_tests tests/ui_layout.cpp src/UI/gameUI.cpp src/Core/clientSettings.cpp
+                src/Input/controllerInput.cpp external/glad-generated/src/gl.c)
+            target_include_directories(ui_layout_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/external/glad-generated/include)
+            target_link_libraries(ui_layout_tests PRIVATE gfx_network imgui glfw OpenGL::GL)
+            if(GFX_ENABLE_LEDGER_UPLOAD)
+                target_link_libraries(ui_layout_tests PRIVATE gfx_ledger_upload)
+                target_compile_definitions(ui_layout_tests PRIVATE GFX_ENABLE_LEDGER_UPLOAD)
+            endif()
+        endif()
+    endif()
     add_executable(game_tests tests/game_tests.cpp)
     target_link_libraries(game_tests PRIVATE gfx_game)
     add_test(NAME gameplay COMMAND game_tests)
@@ -217,6 +240,11 @@ if(BUILD_TESTING)
     set(GFX_VOICE_CLIENT_EXECUTABLE "" CACHE FILEPATH "Optional voice_client for device-free integration tests")
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        if(TARGET ui_layout_tests)
+            add_test(NAME ui_layout COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/ui_layout.py
+                $<TARGET_FILE:gfx_server> $<TARGET_FILE:ui_layout_tests>)
+            set_tests_properties(ui_layout PROPERTIES TIMEOUT 35)
+        endif()
         if(TARGET gfx_ledger_upload)
             add_executable(ledger_upload_test_client tests/ledger_upload_client.cpp)
             target_link_libraries(ledger_upload_test_client PRIVATE gfx_ledger_upload)

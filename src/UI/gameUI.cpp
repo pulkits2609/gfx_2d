@@ -10,6 +10,79 @@
 #include<string>
 
 namespace{
+    void BeginInterfaceFrame(GLFWwindow* window, int controllerId, bool allowController){
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGuiIO& io = ImGui::GetIO();
+        //The GLFW backend only reads joystick 1. Feed the selected controller instead.
+        io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+        ImGui_ImplGlfw_NewFrame();
+        if(allowController) io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+        GLFWgamepadstate state{};
+        bool connected = allowController && glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE
+            && controllerId >= 0 && glfwGetGamepadState(controllerId, &state);
+        io.BackendFlags &= ~ImGuiBackendFlags_HasGamepad;
+        if(connected) io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+        const ImGuiKey keys[]{ImGuiKey_GamepadFaceDown, ImGuiKey_GamepadFaceRight,
+            ImGuiKey_GamepadFaceLeft, ImGuiKey_GamepadFaceUp, ImGuiKey_GamepadL1,
+            ImGuiKey_GamepadR1, ImGuiKey_GamepadBack, ImGuiKey_GamepadStart,
+            ImGuiKey_GamepadL3, ImGuiKey_GamepadR3, ImGuiKey_GamepadDpadUp,
+            ImGuiKey_GamepadDpadRight, ImGuiKey_GamepadDpadDown, ImGuiKey_GamepadDpadLeft};
+        const int buttons[]{GLFW_GAMEPAD_BUTTON_A, GLFW_GAMEPAD_BUTTON_B,
+            GLFW_GAMEPAD_BUTTON_X, GLFW_GAMEPAD_BUTTON_Y, GLFW_GAMEPAD_BUTTON_LEFT_BUMPER,
+            GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER, GLFW_GAMEPAD_BUTTON_BACK, GLFW_GAMEPAD_BUTTON_START,
+            GLFW_GAMEPAD_BUTTON_LEFT_THUMB, GLFW_GAMEPAD_BUTTON_RIGHT_THUMB,
+            GLFW_GAMEPAD_BUTTON_DPAD_UP, GLFW_GAMEPAD_BUTTON_DPAD_RIGHT,
+            GLFW_GAMEPAD_BUTTON_DPAD_DOWN, GLFW_GAMEPAD_BUTTON_DPAD_LEFT};
+        for(int i = 0; i < 14; i++) io.AddKeyEvent(keys[i], connected && state.buttons[buttons[i]] == GLFW_PRESS);
+        auto analog = [&](ImGuiKey key, int axis, float direction){
+            float value = 0;
+            if(connected) value = std::clamp((state.axes[axis] * direction - 0.25f) / 0.75f, 0.0f, 1.0f);
+            io.AddKeyAnalogEvent(key, value > 0.1f, value);
+        };
+        analog(ImGuiKey_GamepadLStickLeft, GLFW_GAMEPAD_AXIS_LEFT_X, -1);
+        analog(ImGuiKey_GamepadLStickRight, GLFW_GAMEPAD_AXIS_LEFT_X, 1);
+        analog(ImGuiKey_GamepadLStickUp, GLFW_GAMEPAD_AXIS_LEFT_Y, -1);
+        analog(ImGuiKey_GamepadLStickDown, GLFW_GAMEPAD_AXIS_LEFT_Y, 1);
+        ImGui::NewFrame();
+    }
+
+    enum class PixelIcon{ Gear, Microphone, Speaker, Team };
+
+    //Seven little rows keep the icons crisp without a font or an image dependency.
+    void DrawPixelIcon(PixelIcon icon, ImVec2 position, ImU32 color, float pixel){
+        static const char* pictures[][7]{
+            {"0010100", "0111110", "1100011", "0101010", "1100011", "0111110", "0010100"},
+            {"0011100", "0011100", "1011101", "1011101", "0111110", "0001000", "0011100"},
+            {"0001000", "0011010", "1111001", "1111001", "1111001", "0011010", "0001000"},
+            {"0110110", "0110110", "0000000", "1111111", "1111111", "1101011", "1101011"}
+        };
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        for(int row = 0; row < 7; row++){
+            for(int column = 0; column < 7; column++){
+                if(pictures[static_cast<int>(icon)][row][column] != '1') continue;
+                ImVec2 corner(std::floor(position.x + column * pixel), std::floor(position.y + row * pixel));
+                draw->AddRectFilled(corner, ImVec2(corner.x + pixel, corner.y + pixel), color);
+            }
+        }
+    }
+
+    bool IconButton(const char* label, PixelIcon icon, bool active = false){
+        ImGui::PushID(label);
+        float pixel = ImGui::GetFontSize() >= 18 ? 2.0f : 1.0f;
+        float iconWidth = 7 * pixel;
+        ImVec2 size(ImGui::CalcTextSize(label).x + iconWidth + 18, ImGui::GetFrameHeight());
+        if(active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.36f, 0.33f, 1));
+        bool pressed = ImGui::Button("##icon", size);
+        if(active) ImGui::PopStyleColor();
+        ImVec2 corner = ImGui::GetItemRectMin();
+        ImU32 color = ImGui::GetColorU32(ImGuiCol_Text);
+        DrawPixelIcon(icon, ImVec2(corner.x + 6, corner.y + (size.y - iconWidth) * 0.5f), color, pixel);
+        ImGui::GetWindowDrawList()->AddText(ImVec2(corner.x + iconWidth + 12,
+            corner.y + (size.y - ImGui::GetFontSize()) * 0.5f), color, label);
+        ImGui::PopID();
+        return pressed;
+    }
+
     constexpr double DamageFlashDuration = 0.18;
     constexpr int DamageFlashAlpha = 150;
     constexpr float DamageBorderThickness = 4.0f;
@@ -22,10 +95,12 @@ namespace{
     }
 }
 
-GameUI::GameUI(GLFWwindow* window){
+GameUI::GameUI(GLFWwindow* window, ClientSettings& settings, ControllerInput& input)
+    : nativeWindow(window), preferences(settings), controller(input){
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     ImFontConfig font;
     font.SizePixels = 16.0f;
     regularFont = ImGui::GetIO().Fonts->AddFontDefault(&font);
@@ -46,6 +121,119 @@ GameUI::~GameUI(){
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+}
+
+void GameUI::ApplyTheme(){
+    //Start from an unscaled style each frame so repeated settings changes never compound.
+    ImGuiStyle& style = ImGui::GetStyle();
+    style = ImGuiStyle();
+    ImGui::StyleColorsDark();
+    style.WindowRounding = style.FrameRounding = style.PopupRounding = 0;
+    style.GrabRounding = style.ScrollbarRounding = 0;
+    style.WindowBorderSize = style.FrameBorderSize = 1;
+    style.WindowPadding = ImVec2(22, 18);
+    style.FramePadding = ImVec2(8, 6);
+    style.ItemSpacing = ImVec2(10, 10);
+    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.055f, 0.075f, 0.095f, 0.98f);
+    style.Colors[ImGuiCol_ChildBg] = ImVec4(0.075f, 0.10f, 0.125f, 0.85f);
+    style.Colors[ImGuiCol_PopupBg] = ImVec4(0.07f, 0.09f, 0.12f, 1);
+    style.Colors[ImGuiCol_Text] = ImVec4(0.91f, 0.92f, 0.85f, 1);
+    style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.57f, 0.65f, 0.68f, 1);
+    style.Colors[ImGuiCol_Border] = ImVec4(0.22f, 0.32f, 0.37f, 1);
+    style.Colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.15f, 0.19f, 1);
+    style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.14f, 0.24f, 0.28f, 1);
+    style.Colors[ImGuiCol_Button] = ImVec4(0.13f, 0.23f, 0.28f, 1);
+    style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.20f, 0.37f, 0.40f, 1);
+    style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.20f, 0.45f, 0.40f, 1);
+    style.Colors[ImGuiCol_Header] = ImVec4(0.14f, 0.27f, 0.29f, 1);
+    style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.21f, 0.38f, 0.39f, 1);
+    style.Colors[ImGuiCol_CheckMark] = style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.55f, 0.82f, 0.65f, 1);
+    style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.23f, 0.26f, 1);
+    style.ScaleAllSizes(preferences.uiScale);
+    ImGui::GetIO().FontGlobalScale = preferences.uiScale;
+}
+
+void GameUI::DrawSettingsButton(){
+    if(IconButton("Settings", PixelIcon::Gear)) settingsOpen = true;
+}
+
+void GameUI::SavePreferences(){
+    preferencesSaved = preferences.Save();
+}
+
+void GameUI::DrawSettings(){
+    if(!settingsOpen) return;
+    ImGui::OpenPopup("Settings");
+    ImVec2 screen = ImGui::GetIO().DisplaySize;
+    ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(510.0f * preferences.uiScale, screen.x - 32),
+        std::min(500.0f * preferences.uiScale, screen.y - 32)));
+    if(ImGui::BeginPopupModal("Settings", &settingsOpen, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)){
+        ImGui::TextDisabled("DISPLAY");
+        ImGui::SliderFloat("UI scale", &preferences.uiScale, ClientSettings::MinimumUiScale,
+            ClientSettings::MaximumUiScale, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
+        if(ImGui::IsItemDeactivatedAfterEdit()) SavePreferences();
+        ImGui::TextWrapped("Adjust menus and labels. The arena and gameplay dimensions stay fixed.");
+        ImGui::Separator();
+        ImGui::TextDisabled("CONTROLLER");
+        std::string selected = "Automatic";
+        for(const auto& device : controller.Devices()){
+            if(device.id == preferences.controllerId) selected = device.name;
+        }
+        if(preferences.controllerId >= 0 && selected == "Automatic") selected = "Selected controller disconnected";
+        if(ImGui::BeginCombo("Device", selected.c_str())){
+            if(ImGui::Selectable("Automatic", preferences.controllerId == -1)){
+                preferences.controllerId = -1;
+                SavePreferences();
+            }
+            for(const auto& device : controller.Devices()){
+                ImGui::PushID(device.id);
+                ImGui::BeginDisabled(!device.mapped);
+                if(ImGui::Selectable(device.name.c_str(), preferences.controllerId == device.id)){
+                    preferences.controllerId = device.id;
+                    SavePreferences();
+                }
+                ImGui::EndDisabled();
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::TextWrapped("Active: %s", controller.ActiveName().c_str());
+        ImGui::TextUnformatted("Left stick: move  /  Right stick: aim");
+        auto binding = [&](const char* label, int& value, int& other){
+            if(ImGui::BeginCombo(label, ControllerInput::BindingName(value))){
+                for(int choice = 0; choice < ControllerInput::BindingCount; choice++){
+                    if(ImGui::Selectable(ControllerInput::BindingName(choice), value == choice)){
+                        //Swap the other action to keep both actions usable after a remap.
+                        if(other == choice) other = value;
+                        value = choice;
+                        SavePreferences();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+        };
+        binding("Boost", preferences.boostBinding, preferences.fireBinding);
+        binding("Fire", preferences.fireBinding, preferences.boostBinding);
+        ImGui::TextWrapped("Reload: X / Square or Back / Select. Start opens the leave menu.");
+        ImGui::TextDisabled("Keyboard and mouse remain available.");
+        ImGui::Separator();
+        if(ImGui::Button("Restore defaults")){
+            preferences.uiScale = 1;
+            preferences.boostBinding = 0;
+            preferences.fireBinding = 1;
+            preferences.controllerId = -1;
+            SavePreferences();
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("Done")){
+            SavePreferences();
+            settingsOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        if(!preferencesSaved) ImGui::TextWrapped("Could not save settings. Changes apply for this session only.");
+        ImGui::EndPopup();
+    }
 }
 
 glm::vec3 GameUI::TeamColor(int team){
@@ -129,9 +317,8 @@ void GameUI::DrawDamageFeedback(const Player& player, const ViewLayout& view){
 
 MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     const ViewLayout& view, const std::string& connectionStatus, GameClient* network, VoiceChat* voice){
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
+    ApplyTheme();
+    BeginInterfaceFrame(nativeWindow, controller.ActiveId(), (network && network->MatchFinished()) || leaveOpen);
     DrawPerformance(network, true);
 
     ImDrawList* draw = ImGui::GetBackgroundDrawList();
@@ -269,6 +456,7 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     }
 
     std::string controls = network ? "WASD MOVE   MOUSE AIM   LMB FIRE   ESC LEAVE" : "WASD MOVE   MOUSE AIM   LMB FIRE   1-4 SWITCH";
+    if(controller.ActiveId() >= 0) controls = "LEFT STICK MOVE   RIGHT STICK AIM   BACK RELOAD   START MENU";
     ImVec2 controlsSize = regularFont->CalcTextSizeA(13 * scale, 2000, 0, controls.c_str());
     draw->AddText(regularFont, 13 * scale, ImVec2((screen.x - controlsSize.x) * 0.5f, screen.y - 15 * scale), muted, controls.c_str());
     MenuAction action = MenuAction::None;
@@ -282,8 +470,10 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
     if(network && network->MatchFinished()){
         ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         //A fixed height keeps the result buttons reachable on the smallest window.
-        ImGui::SetNextWindowSize(ImVec2(420, std::min(520.0f, screen.y - 100)));
+        ImGui::SetNextWindowSize(ImVec2(std::min(470.0f * preferences.uiScale, screen.x - 40), std::min(540.0f * preferences.uiScale, screen.y - 80)));
         ImGui::Begin("Match results", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+        DrawSettingsButton();
+        ImGui::Separator();
         const auto& results = network->GetResults();
         if(results.is_object()){
             int winner = results["winningTeam"].get<int>();
@@ -292,7 +482,8 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
             ImGui::PopFont();
             ImGui::TextDisabled("Time up / final server result");
             for(int team = 0; team < game.GetTeamCount(); team++)
-                ImGui::Text("Team %d: %d", team + 1, results["scores"][team].get<int>());
+                ImGui::TextColored(ImVec4(TeamColor(team).r, TeamColor(team).g, TeamColor(team).b, 1),
+                    "Team %d: %d", team + 1, results["scores"][team].get<int>());
             ImGui::Separator();
             for(const auto& entry : results["players"])
                 ImGui::Text("%s   K %d / D %d", entry["name"].get_ref<const std::string&>().c_str(),
@@ -310,6 +501,15 @@ MenuAction GameUI::Draw(const Game& game, std::size_t selectedPlayer,
         ImGui::End();
     }
     if(network) DrawVoice(network, voice, true);
+    if(network && network->MatchFinished()) DrawSettings();
+    else{
+        settingsOpen = false;
+        //A host can start while another player has Settings open in the lobby.
+        if(ImGui::BeginPopupModal("Settings", nullptr, ImGuiWindowFlags_NoResize)){
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+    }
     MenuAction confirmation = DrawLeaveConfirmation(network);
     if(confirmation != MenuAction::None) action = confirmation;
     ImGui::Render();
@@ -325,22 +525,19 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, GameClient* network, bool bu
     ledgerUpload.Reset();
     ledgerResultId.clear();
 #endif
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
+    ApplyTheme();
+    BeginInterfaceFrame(nativeWindow, controller.ActiveId(), true);
     ImVec2 screen = ImGui::GetIO().DisplaySize;
-    ImGui::StyleColorsDark();
-    ImGui::GetStyle().WindowRounding = 3;
-    ImGui::GetStyle().FrameRounding = 2;
-    ImGui::GetStyle().WindowPadding = ImVec2(24, 20);
-    ImGui::GetStyle().ItemSpacing = ImVec2(10, 12);
+    float uiScale = preferences.uiScale;
     ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(std::min(680.0f, screen.x - 40), std::min(720.0f, screen.y - 40)));
+    ImGui::SetNextWindowSize(ImVec2(std::min(680.0f * uiScale, screen.x - 40), std::min(720.0f * uiScale, screen.y - 40)));
     ImGui::Begin("GFX_2D", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse
         | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar);
     ImGui::PushFont(numberFont);
     ImGui::TextUnformatted("GFX_2D");
     ImGui::PopFont();
+    ImGui::SameLine(ImGui::GetWindowWidth() - 145 * uiScale);
+    DrawSettingsButton();
     ImGui::TextDisabled("CLIENT %s", BuildInfo::ClientVersion);
     ImGui::TextDisabled("One arena. Pick a shape. Find your team.");
     ImGui::Separator();
@@ -386,7 +583,8 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, GameClient* network, bool bu
                 int count = 0;
                 for(const auto& member : lobby["members"]) if(member["team"] == team) count++;
                 ImGui::PushID(team);
-                ImGui::TableNextRow(0, 44);
+                ImGui::TableNextRow(0, 44 * uiScale);
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, Color(color, 18));
                 ImGui::TableNextColumn();
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(color.r * 0.35f, color.g * 0.35f, color.b * 0.35f, 1));
                 bool full = count >= LobbyRules::PlayersPerTeam(lobby["teams"].get<int>());
@@ -450,13 +648,26 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, GameClient* network, bool bu
             ImGui::TextWrapped("Return to your original team through respawn. Rejoining closes when fewer than 2 minutes remain.");
             ImGui::Separator();
         }
-        if(ImGui::Button("Create Lobby", ImVec2(-1, 54))) settings.page = 1;
-        if(ImGui::Button("Browse Public Lobbies", ImVec2(-1, 54))){
+        auto homeButton = [&](const char* label, const char* hint, int colorIndex){
+            ImGui::PushID(label);
+            bool pressed = ImGui::Button("##home", ImVec2(-1, 60));
+            ImVec2 corner = ImGui::GetItemRectMin();
+            ImVec2 end = ImGui::GetItemRectMax();
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            draw->AddRectFilled(corner, ImVec2(corner.x + 4, end.y), Color(TeamColor(colorIndex)));
+            draw->AddText(ImVec2(corner.x + 18, corner.y + 9), ImGui::GetColorU32(ImGuiCol_Text), label);
+            draw->AddText(regularFont, ImGui::GetFontSize() * 0.75f,
+                ImVec2(corner.x + 18, corner.y + 34), ImGui::GetColorU32(ImGuiCol_TextDisabled), hint);
+            ImGui::PopID();
+            return pressed;
+        };
+        if(homeButton("Create Lobby", "Host a match with your own rules", 0)) settings.page = 1;
+        if(homeButton("Browse Public Lobbies", "Find a waiting match on your server", 1)){
             settings.page = 3;
             if(connected) action = MenuAction::Browse;
         }
-        if(ImGui::Button("Join Private Lobby", ImVec2(-1, 54))) settings.page = 2;
-        if(ImGui::Button("Play Offline", ImVec2(-1, 54))) action = MenuAction::Offline;
+        if(homeButton("Join Private Lobby", "Enter a code shared by your host", 2)) settings.page = 2;
+        if(homeButton("Play Offline", "Try movement, aiming and combat locally", 3)) action = MenuAction::Offline;
         ImGui::TextDisabled("Offline practice: keys 1-4 switch between four local players.");
     }
     else{
@@ -522,14 +733,19 @@ MenuAction GameUI::DrawMenu(MenuSettings& settings, GameClient* network, bool bu
         if(settings.page != 3) ImGui::TextWrapped("Run gfx_server first. For another computer, enter that server's LAN address. "
             "Lobbies and their private codes belong to that server only.");
     }
-    if(!settings.error.empty()) ImGui::TextWrapped("%s", settings.error.c_str());
+    if(!settings.error.empty()){
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.58f, 0.43f, 1));
+        ImGui::TextWrapped("%s", settings.error.c_str());
+        ImGui::PopStyleColor();
+    }
     if(network){
         ImGui::Separator();
         ImGui::TextWrapped("%s", network->GetStatus().c_str());
         if(!network->GetNotice().empty()) ImGui::TextWrapped("%s", network->GetNotice().c_str());
     }
-    DrawPerformance(network, false);
+    if(!inLobby) DrawPerformance(network, false);
     ImGui::End();
+    DrawSettings();
     MenuAction confirmation = DrawLeaveConfirmation(network);
     if(confirmation != MenuAction::None) action = confirmation;
     ImGui::Render();
@@ -543,27 +759,30 @@ void GameUI::DrawVoice(GameClient* network, VoiceChat* voice, bool floating){
         ImVec2 screen = ImGui::GetIO().DisplaySize;
         const float scale = ViewLayout::Calculate(screen.x, screen.y).scale;
         ImGui::SetNextWindowPos(ImVec2(screen.x - 12 * scale, 12 * scale), ImGuiCond_Always, ImVec2(1, 0));
-        ImGui::SetNextWindowSize(ImVec2(224 * scale, 0));
+        ImGui::SetNextWindowSize(ImVec2(246 * scale, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 6));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5, 4));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 2));
         ImGui::Begin("Voice", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
             | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
-        ImGui::SetWindowFontScale(std::clamp(scale, 0.8f, 1.25f));
+        //The match HUD must stay inside its reserved strip even at maximum menu scale.
+        ImGui::SetWindowFontScale(std::clamp(scale, 0.8f, 1.0f) / preferences.uiScale);
     }
-    else ImGui::TextDisabled("VOICE");
+    else{ ImGui::TextDisabled("VOICE"); ImGui::SameLine(); }
     ImGui::BeginDisabled(!voice->Connected());
-    if(ImGui::SmallButton(voice->MicrophoneMuted() ? "Mic: muted" : "Mic: OPEN"))
+    if(IconButton(voice->MicrophoneMuted() ? "Mic OFF" : "Mic ON", PixelIcon::Microphone, !voice->MicrophoneMuted()))
         voice->SetMicrophone(!voice->MicrophoneMuted());
     ImGui::SameLine();
-    if(ImGui::SmallButton(voice->TransmittingTeam() ? "All" : "[All]")) voice->SelectTransmit(*network, false);
+    if(IconButton("All", PixelIcon::Speaker, !voice->TransmittingTeam())) voice->SelectTransmit(*network, false);
     ImGui::SameLine();
     ImGui::BeginDisabled(!voice->TeamEnabled());
-    if(ImGui::SmallButton(voice->TransmittingTeam() ? "[Team]" : "Team")) voice->SelectTransmit(*network, true);
+    if(IconButton("Team", PixelIcon::Team, voice->TransmittingTeam())) voice->SelectTransmit(*network, true);
     ImGui::EndDisabled();
-    ImGui::TextDisabled("Hear:"); ImGui::SameLine();
-    if(ImGui::SmallButton(voice->AllMuted() ? "All: off" : "All: on")) voice->SetIncomingAll(!voice->AllMuted());
+    if(!floating) ImGui::SameLine();
+    ImGui::TextDisabled("Hear"); ImGui::SameLine();
+    if(IconButton(voice->AllMuted() ? "All OFF" : "All ON", PixelIcon::Speaker, !voice->AllMuted())) voice->SetIncomingAll(!voice->AllMuted());
     ImGui::SameLine();
-    if(ImGui::SmallButton(voice->TeamMuted() ? "Team: off" : "Team: on")) voice->SetIncomingTeam(!voice->TeamMuted());
+    if(IconButton(voice->TeamMuted() ? "Team OFF" : "Team ON", PixelIcon::Team, !voice->TeamMuted())) voice->SetIncomingTeam(!voice->TeamMuted());
     ImGui::EndDisabled();
     if(!voice->Connected() && voice->Available()){
         if(ImGui::SmallButton("Retry voice")) voice->Retry();
@@ -574,7 +793,7 @@ void GameUI::DrawVoice(GameClient* network, VoiceChat* voice, bool floating){
         ImGui::TextDisabled("%s", label.c_str());
         if(ImGui::IsItemHovered()) ImGui::SetTooltip("%s", voice->Status().c_str());
         ImGui::End();
-        ImGui::PopStyleVar(2);
+        ImGui::PopStyleVar(3);
     }
     else{
         ImGui::TextWrapped("%s", voice->Status().c_str());

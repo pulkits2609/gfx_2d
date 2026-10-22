@@ -7,6 +7,8 @@
 #include "Graphics/mesh.hpp"
 #include "Graphics/transform.hpp"
 #include "Input/keyboardInput.hpp"
+#include "Input/controllerInput.hpp"
+#include "Core/clientSettings.hpp"
 #include "Game/game.hpp"
 #include "UI/gameUI.hpp"
 #include "Network/gameClient.hpp"
@@ -27,6 +29,8 @@ class Application{
         std::array<Transform, Game::PlayerCount> transforms; //presentation transforms for the players
         KeyboardInput keyboardinput;
         Game game;
+        ClientSettings settings;
+        ControllerInput controller;
         GameUI hud;
         VoiceChat voice;
         std::unique_ptr<GameClient> network;
@@ -43,6 +47,10 @@ class Application{
         std::size_t selectedPlayer = 0;
         double nextTitleUpdate = 0.0;
         bool reloadWasPressed = false;
+        bool controllerAim = false;
+        glm::vec2 lastControllerAim{0};
+        glm::dvec2 previousCursor{0};
+        bool cursorKnown = false;
         std::array<bool, Game::PlayerCount> pendingReload{};
 
         PlayerInput ReadInput(

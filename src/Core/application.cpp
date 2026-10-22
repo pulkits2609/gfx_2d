@@ -26,8 +26,9 @@ meshes{
 transforms(),
 keyboardinput(),
 game(numberOfTeams),
-hud(window.GetNativeWindow()),
+hud(window.GetNativeWindow(), settings, controller),
 voice(voiceClient){
+    settings.Load();
     menu.teams = numberOfTeams;
     menu.port = controlPort;
     std::snprintf(menu.name, sizeof(menu.name), "%s", name.c_str());
@@ -45,6 +46,7 @@ void Application::GameLoop(){
 
     while(true){
         window.PollEvents();
+        controller.Poll(settings.controllerId);
         if(window.ShouldClose()){
             bool inMatch = network && network->GetLobby().is_object() && network->GetLobby()["playing"].get<bool>();
             if(!inMatch || closingConfirmed) break;
@@ -89,7 +91,9 @@ void Application::GameLoop(){
             continue;
         }
 
-        bool escape = glfwGetKey(nativeWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS;
+        bool focused = glfwGetWindowAttrib(nativeWindow, GLFW_FOCUSED) == GLFW_TRUE;
+        bool escape = focused && (glfwGetKey(nativeWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS
+            || controller.GetInput(settings.boostBinding, settings.fireBinding).pausePressed);
         bool online = network && network->GetState() == GameClient::State::Connected
             && network->GetLobby().is_object() && network->GetLobby()["playing"].get<bool>()
             && network->HasSnapshot();
@@ -118,7 +122,7 @@ void Application::GameLoop(){
             selectedPlayer = network->GetOwnSlot();
         }
         PlayerInput input = ReadInput(nativeWindow, view);
-        if(hud.IsLeaveOpen()){
+        if(hud.IsLeaveOpen() || hud.IsSettingsOpen()){
             input = {};
             pendingReload = {};
         }
@@ -199,11 +203,13 @@ PlayerInput Application::ReadInput(
         static_cast<float>(wPressed) - static_cast<float>(sPressed)
     );
 
-    bool reloadPressed = keyboardinput.isKeyPressed(nativeWindow, GLFW_KEY_R);
+    ControllerState pad = controller.GetInput(settings.boostBinding, settings.fireBinding);
+    if(pad.movement.x != 0 || pad.movement.y != 0) input.movement = pad.movement;
+    bool reloadPressed = keyboardinput.isKeyPressed(nativeWindow, GLFW_KEY_R) || pad.reload;
     if(reloadPressed && !reloadWasPressed) pendingReload[selectedPlayer] = true;
     reloadWasPressed = reloadPressed;
     input.boost = keyboardinput.isKeyPressed(nativeWindow, GLFW_KEY_LEFT_SHIFT)
-        || keyboardinput.isKeyPressed(nativeWindow, GLFW_KEY_RIGHT_SHIFT);
+        || keyboardinput.isKeyPressed(nativeWindow, GLFW_KEY_RIGHT_SHIFT) || pad.boost;
 
     int windowWidth;
     int windowHeight;
@@ -217,14 +223,30 @@ PlayerInput Application::ReadInput(
     double cursorY;
     glfwGetCursorPos(nativeWindow, &cursorX, &cursorY);
 
+    bool mouseFire = glfwGetMouseButton(nativeWindow, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    glm::dvec2 cursor(cursorX, cursorY);
+    bool mouseMoved = cursorKnown && glm::length(cursor - previousCursor) > 1.0;
+    previousCursor = cursor;
+    cursorKnown = true;
+    if(mouseMoved || mouseFire || controller.ActiveId() < 0) controllerAim = false;
+    bool padActive = pad.aiming || pad.fire || pad.boost || pad.movement.x != 0 || pad.movement.y != 0;
+    if(padActive && !mouseMoved && !mouseFire) controllerAim = true;
+    if(pad.aiming && !mouseFire){
+        lastControllerAim = pad.aimDirection;
+        controllerAim = true;
+    }
     input.aimPosition = view.ToWorld(static_cast<float>(cursorX), static_cast<float>(cursorY));
+    if(controllerAim){
+        const Player& player = game.GetPlayers()[selectedPlayer];
+        //Keep the last stick direction when released; never aim back at an idle mouse cursor.
+        if(glm::length(lastControllerAim) < 0.001f) lastControllerAim = player.aimDirection;
+        input.aimPosition = player.position + lastControllerAim * MatchRules::ShotRange;
+    }
     input.hasAim = true;
     bool cursorInside = cursorX >= view.left && cursorX <= view.left + view.width
         && cursorY >= view.top && cursorY <= view.top + view.height;
 
-    input.shoot = cursorInside && !ImGui::GetIO().WantCaptureMouse
-        && glfwGetMouseButton(nativeWindow, GLFW_MOUSE_BUTTON_LEFT)
-            == GLFW_PRESS;
+    input.shoot = pad.fire || (cursorInside && !ImGui::GetIO().WantCaptureMouse && mouseFire);
 
     return input;
 }

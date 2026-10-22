@@ -2,6 +2,7 @@
 from datetime import datetime
 from hashlib import sha256
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -14,6 +15,8 @@ CACHE = BUILD / 'all-in-one-runtime-cache'
 
 
 def main():
+    client_version = re.search(r'ClientVersion\[\] = "([^"]+)"', (ROOT / "include/Core/buildInfo.hpp").read_text())[1]
+    playtest = client_version.split("playtest.")[-1]
     stage = BUILD / ('all-in-one-stage-' + datetime.now().strftime('%Y%m%d-%H%M%S'))
     package = stage / 'GFX_2D_All_In_One'
     game = package / 'game'
@@ -45,7 +48,7 @@ def main():
     shutil.copy2(ROOT / 'tools' / 'launch_everything.py', package / 'tools' / 'launch_everything.py')
     shutil.copy2(ROOT / 'Start Everything.bat', package / 'Start Everything.bat')
     (package / 'Start Client.bat').write_bytes(b'@echo off\r\ncd /d "%~dp0game"\r\nstart "" gfx.exe\r\n')
-    instructions = '''GFX_2D all-in-one - Windows x64 - playtest.4
+    instructions = f'''GFX_2D all-in-one - Windows x64 - {client_version}
 
 Extract the WHOLE ZIP into a writable folder. Run Start Everything.bat.
 No installed Python, Node, compiler, pip or npm is needed.
@@ -62,6 +65,11 @@ They keep the complete game folder, including its voice subfolder and DLLs.
 For remote ledger access: select ledger bind 0.0.0.0 and enter the public/LAN hostname.
 Forward the selected game TCP/UDP, voice TCP/UDP, and ledger TCP ports as needed.
 The launcher does not modify firewall or router settings.
+Settings gear: adjust UI scale from 85 to 120 percent, select a controller, or remap boost/fire.
+Settings are hidden during active gameplay. Left stick moves; right stick aims.
+Controller defaults: LT boost, RT fire, X/Square or Back/Select reload, Start leave menu.
+If X is remapped to boost/fire, Back/Select still reloads. Keyboard/mouse also work.
+UI/controller preferences are saved per user, separate from server and ledger data.
 After a match the host can upload results using the ledger address and port.
 Ledger uploads remain optional and use the existing trusted-demo HTTP API.
 
@@ -76,14 +84,14 @@ Power users: Start Everything.bat --defaults --debug-server --game-tcp 9999 --ga
     versions = {}
     for name, folder in (('gfx', ROOT), ('ledger', LEDGER)):
         versions[name] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=folder, text=True).strip()
-    versions['client'] = '0.1.0-playtest.4'
+    versions['client'] = client_version
     (package / 'VERSION.json').write_text(json.dumps(versions, indent=2) + '\n')
     files = [p for p in package.rglob('*') if p.is_file()]
     assert not any(p.name in ('chain.jsonl', 'snapshot.key') for p in files)
     (package / 'SHA256SUMS.txt').write_text(''.join(
         sha256(p.read_bytes()).hexdigest() + '  ' + p.relative_to(package).as_posix() + '\n'
         for p in sorted(files)))
-    archive = BUILD / 'gfx_2d-all-in-one-windows-x64-playtest4-2026-10-22.zip'
+    archive = BUILD / ('gfx_2d-all-in-one-windows-x64-playtest' + playtest + '-' + datetime.now().strftime('%Y-%m-%d') + '.zip')
     with ZipFile(archive, 'w', ZIP_DEFLATED, compresslevel=6) as output:
         for path in sorted(package.rglob('*')):
             if path.is_file():

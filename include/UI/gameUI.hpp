@@ -1,6 +1,8 @@
 #pragma once
 
 #include"Game/game.hpp"
+#include"Core/clientSettings.hpp"
+#include"Input/controllerInput.hpp"
 #include"UI/viewLayout.hpp"
 #include"Network/gameClient.hpp"
 #include"Network/voiceChat.hpp"
@@ -33,6 +35,15 @@ struct ImFont;
 //draws the HUD only; health, ammo and scores still belong to Game
 class GameUI{
     private:
+        GLFWwindow* nativeWindow;
+        ClientSettings& preferences;
+        ControllerInput& controller;
+        bool settingsOpen = false;
+        bool preferencesSaved = true;
+        void SavePreferences();
+        void ApplyTheme();
+        void DrawSettingsButton();
+        void DrawSettings();
         ImFont* regularFont = nullptr;
         ImFont* numberFont = nullptr;
         bool leaveOpen = false;
@@ -54,7 +65,7 @@ class GameUI{
         void DrawDamageFeedback(const Player& player, const ViewLayout& view);
 
     public:
-        explicit GameUI(GLFWwindow* window);
+        GameUI(GLFWwindow* window, ClientSettings& preferences, ControllerInput& controller);
         ~GameUI();
         GameUI(const GameUI&) = delete;
         GameUI& operator=(const GameUI&) = delete;
@@ -62,6 +73,7 @@ class GameUI{
         static glm::vec3 TeamColor(int team);
         void RequestLeave(bool closeGame = false){ leaveOpen = openLeavePopup = true; closingGame = closeGame; }
         bool IsLeaveOpen() const{ return leaveOpen; }
+        bool IsSettingsOpen() const{ return settingsOpen; }
         MenuAction DrawMenu(MenuSettings& settings, GameClient* network, bool busy, VoiceChat* voice = nullptr);
         MenuAction Draw(const Game& game, std::size_t selectedPlayer,
             const ViewLayout& view, const std::string& connectionStatus, GameClient* network = nullptr, VoiceChat* voice = nullptr);

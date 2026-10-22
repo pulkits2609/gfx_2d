@@ -35,6 +35,14 @@ address in each client. The server must be reachable on both ports; codes belong
 to that server. Custom server ports use `--port` and `--udp-port`.
 
 Use WASD to move, mouse to aim, LMB to fire, R to reload and Shift to boost.
+
+Mapped GLFW controllers are detected automatically: left stick moves, right stick aims,
+LT boosts, RT fires, and X/Square or Back/Select reloads. Start opens the leave menu.
+The Settings gear in menus, lobbies and results lets you choose a controller and remap
+boost/fire; the two sticks stay fixed. Back/Select still reloads when X is remapped.
+Settings are hidden during active gameplay. UI scale is limited to 85–120% and does
+not change the arena or hitboxes; small windows scroll when needed. Preferences are
+saved per user (`%LOCALAPPDATA%/GFX_2D/settings.json` on Windows).
 Escape leaves an online match or returns offline practice to the menu. Keys
 1-4 switch players only in offline practice. Build without graphics using
 `-DGFX_BUILD_CLIENT=OFF`; run checks with `ctest --test-dir build --output-on-failure`.
